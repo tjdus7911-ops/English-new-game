@@ -50,9 +50,19 @@ def save_part(name, img, pivot_native, z, parent='body'):
 BELLY = [(0, 218), (40, 214), (75, 206), (115, 203), (150, 211), (200, 209), (236, 203), (290, 199), (330, 210), (368, 226)]
 
 
+def disc_mask(size, c, r, feather=3):
+    m = Image.new('L', size, 0)
+    ImageDraw.Draw(m).ellipse([(c[0] - r) * K, (c[1] - r) * K, (c[0] + r) * K, (c[1] + r) * K], fill=255)
+    return np.asarray(m.filter(ImageFilter.GaussianBlur(feather * K))).astype(np.float32) / 255
+
+
 def rig_walk():
-    """배 아래 매끈한 곡선(BELLY)을 경계로 다리를 분리. 다리는 곡선 위로 18px 겹치게(부드러운 그라데이션) 잘라
-    회전해도 관절에 틈·톱니가 보이지 않게 한다. 몸통은 곡선 아래만 2px 페더로 지운다."""
+    """걷기·달리기 리그. 원본 픽셀만 사용한다.
+    - 배 아래 파츠: 원본에 없는 배 아랫면을 배 바로 위 털(원본)을 아래로 뒤집어 이어 붙여 만든다(14px, 아래로 갈수록 그늘).
+      몸통이 다리 윗부분을 덮어 관절 틈이 보이지 않는다.
+    - 앞쪽 다리 2개: 엉덩이·어깨를 원판(원본 털)으로 감싸고 그 중심을 피벗으로 → 회전해도 윤곽이 그대로라 이음새가 없다.
+    - 뒤쪽 다리 2개: 몸통 뒤에 그려지고 윗부분은 배 아래 파츠에 가려진다.
+    - 꼬리: 몸통 안쪽까지 넉넉히 잘라 몸통 뒤에 둔다 → 흔들어도 잘린 단면이 보이지 않는다."""
     base = Image.open(SRC / 'pose_walk.webp').convert('RGBA')
     S = base.size
     W, H = S
@@ -60,34 +70,51 @@ def rig_walk():
     cy = np.interp(xs, [p[0] for p in BELLY], [p[1] for p in BELLY]) * K
     yy = np.arange(H)[:, None].astype(np.float32)
     d = yy - cy[None, :]                       # + : 곡선 아래
-    ext = 12 * K
-    below = np.clip(d / (2 * K) + 0.5, 0, 1)   # 몸통 제거용 (2px 페더)
-    leg_v = np.clip((d + ext) / ext, 0, 1)     # 다리: 곡선 위 ext 까지 서서히
-    # 다리 사이 경계: 원본에서 다리 사이로 배경이 보이는 틈을 따라 비스듬히 자른다 (세로 직선 절단 금지)
+    xx = np.arange(W)[None, :].astype(np.float32) / K
+    below = np.clip(d / (2 * K) + 0.5, 0, 1)
     bands = {
-        'leg_hind_near': ([(0, 150), (126, 150), (130, 214), (124, 246), (120, 300), (0, 300)], (104, 206), 6),
-        'leg_hind_far': ([(126, 150), (178, 150), (176, 214), (174, 248), (176, 300), (120, 300), (124, 246), (130, 214)], (148, 210), -2),
-        'leg_front_far': ([(178, 150), (234, 150), (234, 204), (242, 232), (236, 300), (176, 300), (174, 248), (176, 214)], (204, 208), -2),
-        'leg_front_near': ([(234, 150), (368, 150), (368, 300), (290, 300), (284, 274), (250, 246), (242, 232), (234, 204)], (250, 203), 6),
+        'leg_hind_near': ([(0, 150), (126, 150), (130, 214), (124, 246), (120, 300), (0, 300)], (100, 198), 6, 22),
+        'leg_hind_far': ([(126, 150), (178, 150), (176, 214), (174, 248), (176, 300), (120, 300), (124, 246), (130, 214)], (150, 211), -2, 0),
+        'leg_front_far': ([(178, 150), (234, 150), (234, 204), (242, 232), (236, 300), (176, 300), (174, 248), (176, 214)], (205, 209), -2, 0),
+        'leg_front_near': ([(234, 150), (368, 150), (368, 300), (290, 300), (284, 274), (250, 246), (242, 232), (234, 204)], (255, 196), 6, 20),
     }
     parts = []
-    for name, (poly, piv, z) in bands.items():
-        hx = poly_mask(S, poly, feather=5)
-        xx = np.arange(W)[None, :].astype(np.float32) / K
-        # 겹침(곡선 위) 부분은 다리 윗부분 폭만큼만 → 회전해도 몸통 바깥으로 뾰족하게 튀어나오지 않음
-        top = {'leg_hind_near': (74, 124), 'leg_front_near': (240, 296)}.get(name)
-        if z > 0 and top:
-            tx = np.clip((xx - top[0]) / 6 + 0.5, 0, 1) * np.clip((top[1] - xx) / 6 + 0.5, 0, 1)
-            lv = np.where(d >= 0, 1.0, leg_v * tx)
-        else:
-            lv = np.clip((d + 3 * K) / (3 * K), 0, 1)
-        parts.append(save_part('walk_' + name, apply(base, lv * hx), piv, z))
+    for name, (poly, piv, z, r) in bands.items():
+        hx = poly_mask(S, poly, feather=4)
+        if r:   # 앞쪽 다리: 곡선 아래 + 관절 원판
+            m = np.maximum(hx * np.clip(d / (2 * K) + 0.5, 0, 1), disc_mask(S, piv, r))
+        else:   # 뒤쪽 다리: 곡선 위 6px 까지 (배 아래 파츠에 가려짐)
+            m = hx * np.clip((d + 6 * K) / (3 * K), 0, 1)
+        parts.append(save_part('walk_' + name, apply(base, m), piv, z))
         parts[-1]['name'] = name
-    body = apply(base, 1 - below)
-    tail_poly = [(4, 30), (112, 26), (130, 118), (120, 160), (96, 176), (70, 192), (44, 214), (4, 214)]
+    # ── 몸통 + 배 아래 파츠 ──
+    arr = np.asarray(base).astype(np.float32).copy()
+    arr[..., 3] *= (1 - below)
+    E = 14 * K
+    x0, x1 = 44 * K, 336 * K
+    for x in range(x0, x1):
+        c = int(round(cy[x]))
+        # 가장자리로 갈수록 짧게 (둥근 배)
+        u = (x - x0) / (x1 - x0)
+        e = int(E * np.sin(np.pi * np.clip(u, 0, 1)) ** 0.6)
+        for k in range(e):
+            src_y = c - 1 - k
+            if src_y < 0 or c + k >= H:
+                continue
+            shade = 1.0 - 0.18 * (k / max(1, E))
+            a = 1.0 if k < e - 3 * K else max(0.0, (e - k) / (3 * K))
+            px = arr[src_y, x].copy()
+            if px[3] < 200:
+                continue
+            arr[c + k, x, :3] = px[:3] * shade
+            arr[c + k, x, 3] = max(arr[c + k, x, 3], 255 * a)
+    body = Image.fromarray(arr.clip(0, 255).astype(np.uint8), 'RGBA')
+    body = Image.fromarray(np.dstack([np.asarray(body.filter(ImageFilter.GaussianBlur(0.6)))[..., :3], np.asarray(body)[..., 3]]), 'RGBA')
+    tail_cut = [(4, 30), (112, 26), (128, 118), (116, 160), (92, 176), (68, 192), (44, 214), (4, 214)]
+    tail_part = [(4, 30), (112, 26), (134, 118), (146, 160), (136, 192), (104, 208), (60, 216), (4, 216)]
     head_poly = [(196, 8), (368, 8), (368, 168), (300, 172), (246, 160), (210, 128), (196, 70)]
-    parts.append(save_part('walk_tail', apply(base, poly_mask(S, tail_poly, feather=3)), (114, 158), -1)); parts[-1]['name'] = 'tail'
-    body = apply(body, 1 - poly_mask(S, tail_poly, feather=1.5))
+    parts.append(save_part('walk_tail', apply(base, poly_mask(S, tail_part, feather=2)), (116, 158), -1)); parts[-1]['name'] = 'tail'
+    body = apply(body, 1 - poly_mask(S, tail_cut, feather=1.5))
     parts.append(save_part('walk_head', apply(base, poly_mask(S, head_poly, feather=7)), (246, 150), 8)); parts[-1]['name'] = 'head'
     bb = body.getbbox()
     body.crop(bb).save(OUT / 'walk_body.png')
@@ -96,7 +123,7 @@ def rig_walk():
     return {'canvas': list(S), 'ground_y': 280 * K, 'parts': parts}
 
 
-def rig_simple(src, prefix, head_poly, head_piv, tail_poly=None, tail_piv=None, erase=()):
+def rig_simple(src, prefix, head_poly, head_piv, tail_poly=None, tail_piv=None, erase=(), tail_part=None):
     base = Image.open(SRC / src).convert('RGBA')
     S = base.size
     for pts in erase:  # 원본에 그려진 하트·효과선 제거 (캐릭터 픽셀은 건드리지 않음)
@@ -104,7 +131,7 @@ def rig_simple(src, prefix, head_poly, head_piv, tail_poly=None, tail_piv=None, 
     parts = []
     body = base
     if tail_poly:
-        parts.append(save_part(f'{prefix}_tail', apply(base, poly_mask(S, tail_poly, feather=3)), tail_piv, -1))
+        parts.append(save_part(f'{prefix}_tail', apply(base, poly_mask(S, tail_part or tail_poly, feather=2)), tail_piv, -1))
         body = apply(body, 1 - poly_mask(S, tail_poly, feather=1.5))
     parts.append(save_part(f'{prefix}_head', apply(base, poly_mask(S, head_poly, feather=8)), head_piv, 8))
     bb = body.getbbox()
@@ -126,7 +153,9 @@ def main():
     # 정면 앉은 포즈 (HD 548×670 ≈ native 274×335)
     rig['idle'] = rig_simple('pose_idle.webp', 'idle',
                              head_poly=[(30, 8), (262, 8), (262, 172), (200, 186), (137, 190), (74, 186), (30, 160)], head_piv=(137, 180),
-                             tail_poly=[(4, 180), (64, 176), (70, 230), (66, 296), (56, 330), (4, 330)], tail_piv=(70, 290))
+                             # 몸통에서는 바깥으로 보이는 꼬리만 지우고, 꼬리 파츠는 몸통 안쪽까지 넉넉히 → 잘린 단면이 몸통 뒤에 숨는다
+                             tail_poly=[(4, 180), (60, 176), (72, 230), (76, 296), (66, 334), (4, 334)], tail_piv=(78, 292),
+                             tail_part=[(4, 176), (70, 172), (94, 230), (92, 286), (80, 334), (4, 334)])
     rig['pet_react'] = rig_simple('pose_pet_react.webp', 'react',
                                   head_poly=[(60, 30), (262, 30), (262, 170), (200, 182), (130, 176), (60, 150)], head_piv=(170, 170),
                                   erase=[[(175, 0), (232, 0), (232, 43), (175, 43)],          # 하트
