@@ -1,0 +1,77 @@
+{
+ "idle": {
+  "canvas": [
+   640,
+   760
+  ],
+  "fps": 15,
+  "frames": 45,
+  "length": 3,
+  "loop": true,
+  "origin": [
+   320,
+   730
+  ],
+  "speed_px_s": 0
+ },
+ "nuzzle": {
+  "canvas": [
+   1000,
+   820
+  ],
+  "fps": 15,
+  "frames": 103,
+  "length": 6.80000019073486,
+  "loop": false,
+  "origin": [
+   500,
+   790
+  ],
+  "speed_px_s": 0
+ },
+ "pet_react": {
+  "canvas": [
+   640,
+   760
+  ],
+  "fps": 20,
+  "frames": 53,
+  "length": 2.59999990463257,
+  "loop": false,
+  "origin": [
+   320,
+   730
+  ],
+  "speed_px_s": 0
+ },
+ "run": {
+  "canvas": [
+   900,
+   720
+  ],
+  "fps": 30,
+  "frames": 15,
+  "length": 0.5,
+  "loop": true,
+  "origin": [
+   450,
+   680
+  ],
+  "speed_px_s": 453.333333333333
+ },
+ "walk": {
+  "canvas": [
+   900,
+   700
+  ],
+  "fps": 30,
+  "frames": 30,
+  "length": 1,
+  "loop": true,
+  "origin": [
+   450,
+   660
+  ],
+  "speed_px_s": 58.0645161290323
+ }
+}

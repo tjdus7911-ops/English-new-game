@@ -1,0 +1,129 @@
+{
+ "pet": "PET_SNOW_C",
+ "slug": "ice_leopard",
+ "stage": 1,
+ "source": "Godot 스키닝 리그 v3 (Figma 원본 기반)",
+ "anims": {
+  "walk": {
+   "fps": 30,
+   "frames": 30,
+   "loop": true,
+   "frame": [
+    505,
+    391
+   ],
+   "origin": [
+    258.3,
+    375.9
+   ],
+   "speed": 40.65,
+   "hd_scale": 0.7,
+   "sheets": [
+    {
+     "file": "walk_0.webp",
+     "cols": 8,
+     "rows": 4,
+     "count": 30
+    }
+   ]
+  },
+  "run": {
+   "fps": 30,
+   "frames": 15,
+   "loop": true,
+   "frame": [
+    530,
+    410
+   ],
+   "origin": [
+    277.2,
+    392.0
+   ],
+   "speed": 317.33,
+   "hd_scale": 0.7,
+   "sheets": [
+    {
+     "file": "run_0.webp",
+     "cols": 7,
+     "rows": 3,
+     "count": 15
+    }
+   ]
+  },
+  "idle": {
+   "fps": 15,
+   "frames": 45,
+   "loop": true,
+   "frame": [
+    318,
+    387
+   ],
+   "origin": [
+    158.4,
+    379.8
+   ],
+   "speed": 0.0,
+   "hd_scale": 0.6,
+   "sheets": [
+    {
+     "file": "idle_0.webp",
+     "cols": 12,
+     "rows": 4,
+     "count": 45
+    }
+   ]
+  },
+  "pet_react": {
+   "fps": 20,
+   "frames": 53,
+   "loop": false,
+   "frame": [
+    322,
+    386
+   ],
+   "origin": [
+    161.4,
+    379.2
+   ],
+   "speed": 0.0,
+   "hd_scale": 0.6,
+   "sheets": [
+    {
+     "file": "pet_react_0.webp",
+     "cols": 12,
+     "rows": 5,
+     "count": 53
+    }
+   ]
+  },
+  "nuzzle": {
+   "fps": 15,
+   "frames": 103,
+   "loop": false,
+   "frame": [
+    491,
+    468
+   ],
+   "origin": [
+    245.4,
+    460.8
+   ],
+   "speed": 0.0,
+   "hd_scale": 0.6,
+   "sheets": [
+    {
+     "file": "nuzzle_0.webp",
+     "cols": 8,
+     "rows": 8,
+     "count": 64
+    },
+    {
+     "file": "nuzzle_1.webp",
+     "cols": 8,
+     "rows": 5,
+     "count": 39
+    }
+   ]
+  }
+ }
+}

@@ -3,16 +3,25 @@
 v3 파츠(art/pets/godot_src/ice_leopard_s1/parts_v3) → Godot 스키닝 메시 데이터.
 
 각 파츠를 격자 메시로 덮고 정점마다 뼈 가중치를 계산한다.
-- 몸통: body / head / tail 뼈. 머리·꼬리는 잘라 붙이지 않고 같은 이미지 안에서 휘어지게(이음새 없음).
+- 몸통: body 뼈에 단단히 고정 (같은 그림 안에서 휘면 털이 늘어나 보이므로 머리는 휘지 않는다).
+- 꼬리: 몸통에서 엉덩이 윤곽을 따라 떼어 낸 '단단한' 별도 층(몸통 뒤). 꼬리 뿌리는 LaMa 로 몸통 안쪽까지
+  이어 그려 두어 흔들어도 잘린 면이 몸통 밖으로 드러나지 않는다.
 - 다리: body / 해당 다리 뼈. 어깨·엉덩이 윗부분은 몸통에 고정(0), 발 쪽으로 갈수록 다리 뼈(1).
 출력: godot/egg_island_pets/parts/ice_leopard_s1_v3/  (png 복사 + skin.json)
 """
 import json
+import os
 import shutil
 from pathlib import Path
 
+import sys
+
+import cv2
 import numpy as np
 from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import skin_common as SC  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 SRC = ROOT / 'art/pets/godot_src/ice_leopard_s1/parts_v3'
@@ -32,6 +41,7 @@ def axis_w(px, py, piv, ax, t0, t1):
 
 
 def main():
+    SC.LAMA_PATH = os.environ.get('LAMA', '/tmp/claude-0/-home-claude/748eeeb8-c914-548e-b7f0-96237bd15e7c/scratchpad/models/big-lama.pt')
     meta = json.loads((SRC / 'parts.json').read_text())
     K = meta['k']
     off = meta['pad_native']
@@ -43,15 +53,17 @@ def main():
     bones = {
         'body': {'parent': None, 'pivot': nat(185, 195)},
         'head': {'parent': 'body', 'pivot': nat(244, 150)},
-        'tail': {'parent': 'body', 'pivot': nat(98, 168)},
+        'tail': {'parent': 'body', 'pivot': nat(102, 170)},
     }
     out = {'origin': origin, 'k': K, 'off': off, 'ground_y': ground_y, 'bones': bones, 'parts': {}}
     FEET = {n: nat(*f) for n, f in {'leg_hind_near': (62, 275), 'leg_hind_far': (157, 276), 'leg_front_far': (202, 277),
                                      'leg_front_near': (322, 268)}.items()}
     out['feet'] = FEET
+    split_tail(meta, nat, K, out)
     for n, p in meta['parts'].items():
-        shutil.copy(SRC / p['file'], OUT / p['file'])
-        im = np.asarray(Image.open(SRC / p['file']))[..., 3]
+        if n != 'body':
+            shutil.copy(SRC / p['file'], OUT / p['file'])
+        im = np.asarray(Image.open(OUT / p['file']))[..., 3]
         h, w = im.shape
         nx, ny = w // G + 2, h // G + 2
         # 격자 정점 (텍스처 좌표) — 알파가 있는 칸만 사용
@@ -78,13 +90,7 @@ def main():
         V = np.array(verts, float)
         weights = {}
         if n == 'body':
-            # 머리: 목에서 머리 쪽(위·앞)으로 / 꼬리: 엉덩이에서 꼬리 쪽(위·뒤)으로
-            wh = axis_w(V[:, 0], V[:, 1], bones['head']['pivot'], (0.55, -0.83), -4 * K, 26 * K)
-            wh *= smooth((V[:, 0] - nat(196, 0)[0]) / (14 * K))                      # 등 쪽으로 번지지 않게
-            wt = axis_w(V[:, 0], V[:, 1], bones['tail']['pivot'], (-0.5, -0.87), -2 * K, 30 * K)
-            wt *= smooth((nat(112, 0)[0] - V[:, 0]) / (14 * K))
-            wt *= 1 - wh
-            weights = {'head': wh, 'tail': wt, 'body': 1 - wh - wt}
+            weights = {'body': np.ones(len(V))}
         else:
             px, py, ax, ay, t0, t1 = p['weight_axis']
             wl = smooth(((V[:, 0] - px) * ax + (V[:, 1] - py) * ay - t0) / (t1 - t0))
@@ -103,6 +109,42 @@ def main():
                            'weights': {k: np.round(v, 4).tolist() for k, v in weights.items()}}
         print(n, len(verts), 'verts', len(tris), 'tris')
     (OUT / 'skin.json').write_text(json.dumps(out))
+
+
+# 엉덩이 윤곽 (원본 좌표): 꼬리 뿌리 오른쪽 가장자리를 따라 위에서 아래로
+RUMP = [(124, 124), (118, 134), (110, 146), (104, 158), (100, 170), (98, 182), (94, 192), (86, 199), (72, 206)]
+
+
+def split_tail(meta, nat, K, out):
+    p = meta['parts']['body']
+    W, H = meta['canvas']
+    full = np.zeros((H, W, 4), np.float32)
+    im = np.asarray(Image.open(SRC / p['file']).convert('RGBA')).astype(np.float32)
+    x, y = p['pos']
+    full[y:y + im.shape[0], x:x + im.shape[1]] = im
+    al = full[..., 3] / 255
+    curve = SC.chaikin([nat(*q) for q in RUMP], it=3, closed=False)
+    d_body = -SC.region(curve, [nat(*q) for q in [(-30, 206), (-30, -30), (124, -30)]], (H, W))   # 몸통 쪽 + (px)
+    # 몸통: 엉덩이 윤곽 바깥(꼬리 쪽)은 털 가장자리로 끊음
+    body_al = al * SC.fur_alpha(d_body, key=5)
+    bb = SC.crop_save(full[..., :3], body_al, OUT / 'body.png', pad=4)
+    p2 = dict(p)
+    p2['pos'] = [bb[0], bb[1]]
+    meta['parts']['body'] = p2
+    # 꼬리: 윤곽 바깥 원본 + 몸통 안쪽 16px 띠(가려지는 꼬리 뿌리)를 LaMa 로 꼬리 털로 채움
+    yy = np.arange(H)[:, None]
+    inner = cv2.erode((al > 0.95).astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    band = (d_body > -2) & (d_body < 16 * K) & (yy > nat(0, 136)[1]) & (yy < nat(0, 200)[1]) & inner
+    rgbw = full[..., :3] * al[..., None] + 255 * (1 - al[..., None])
+    ctx = rgbw.copy()
+    ctx[d_body > 0] = 255
+    fill = SC.inpaint(ctx, band)
+    tail_al = np.where(d_body <= -2, al, 0.0)
+    tail_al = np.maximum(tail_al, band.astype(np.float32))
+    rgb = np.where(band[..., None], fill, full[..., :3])
+    tb = SC.crop_save(rgb, tail_al, OUT / 'tail.png', pad=4)
+    ta = np.asarray(Image.open(OUT / 'tail.png'))[..., 3]
+    out['parts']['tail'] = SC.rigid_part('tail.png', -3, 'tail', ta, (tb[0], tb[1]))
 
 
 if __name__ == '__main__':
