@@ -147,11 +147,11 @@ static func leg_len(view: Node2D, n: String) -> float:
 # ───────────────────────── 걷기 · 달리기 ─────────────────────────
 ## 다리는 단단한 막대처럼 엉덩이·어깨를 축으로 돈다. 바닥을 짚는 동안 발이 일정한 속도로 뒤로 밀리고(=몸이 앞으로 감),
 ## 드는 동안 다리를 살짝 들어 올려 앞으로 옮긴다. 걷기: 뒷다리(가까운)→앞다리(가까운)→뒷다리(먼)→앞다리(먼)
-const WALK := {"cycle": 1.0, "duty": 0.62, "stride": 40.0, "lift": 9.0,
+const WALK := {"cycle": 1.0, "duty": 0.62, "stride": 124.0, "lift": 26.0,
 	"phase": {"leg_hind_near": 0.0, "leg_front_near": 0.25, "leg_hind_far": 0.5, "leg_front_far": 0.75},
 	"bob": 3.0, "pitch": 0.012, "head": 0.03, "tail": 0.12, "tail_base": 0.0, "air": 0.0}
 ## 달리기(갤럽): 뒷다리 두 개가 차고 → 공중 → 앞다리 두 개가 받는다
-const RUN := {"cycle": 0.5, "duty": 0.32, "stride": 76.0, "lift": 22.0,
+const RUN := {"cycle": 0.5, "duty": 0.32, "stride": 150.0, "lift": 36.0,
 	"phase": {"leg_hind_near": 0.0, "leg_hind_far": 0.9, "leg_front_near": 0.5, "leg_front_far": 0.4},
 	"bob": 0.0, "pitch": 0.07, "head": 0.05, "tail": 0.18, "tail_base": -0.18, "air": 22.0}
 

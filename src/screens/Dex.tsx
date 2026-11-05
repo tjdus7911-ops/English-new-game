@@ -5,11 +5,15 @@ import { go } from '../app/router';
 import { PetPortrait } from '../pets/PetSprite';
 import { eggUrl, lineupUrl } from '../pets/atlas';
 import { ATTRIBUTES, ATTRIBUTE_BY_ID, SPECIES, type AttributeId, type Species } from '../data/species';
-import { DEMO_PETS, DEX_OWNED } from '../data/mock';
+import { DEX_OWNED as DEX_BASE } from '../data/mock';
+import { useGame } from '../data/store';
 
 type Menu = 'dex' | 'growth' | 'reward';
 
 export function DexScreen() {
+  const game = useGame();
+  const DEMO_PETS = game.pets;
+  const DEX_OWNED = new Set([...DEX_BASE, ...game.pets.map((p) => p.speciesId)]);   // 부화한 펫은 도감에 자동 등록
   const [menu, setMenu] = useState<Menu>('dex');
   const [filter, setFilter] = useState<AttributeId | 'all'>('all');
   const [detail, setDetail] = useState<Species | null>(null);

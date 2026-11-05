@@ -3,12 +3,14 @@ import { useState } from 'react';
 import { Bar, Btn, Screen, SideMenu, TopHud, toast } from '../ui/kit';
 import { go } from '../app/router';
 import { uiUrl } from '../pets/atlas';
-import { PLAYER, DEMO_PETS } from '../data/mock';
+import { PLAYER } from '../data/mock';
+import { useGame } from '../data/store';
 import { SPECIES } from '../data/species';
 
 type Menu = 'profile' | 'settings' | 'account' | 'help';
 
 export function ProfileScreen({ params }: { params: URLSearchParams }) {
+  const game = useGame();
   const [menu, setMenu] = useState<Menu>((params.get('tab') as Menu) || 'profile');
   const [opts, setOpts] = useState({ bgm: true, sfx: true, motion: false, push: true });
   return (
@@ -31,7 +33,7 @@ export function ProfileScreen({ params }: { params: URLSearchParams }) {
                 <img src={uiUrl('bg/main_island.webp')} alt="" style={{ width: 300, height: 190, objectFit: 'cover', borderRadius: 26, border: '5px solid #fff', boxShadow: '0 0 0 4px #9A78F0' }} />
               </div>
               <div className="stat-row">
-                {[['보유 펫', `${DEMO_PETS.length} / ${SPECIES.length}`], ['섬 레벨', `Lv.${PLAYER.islandLevel}`], ['학습 횟수', `${PLAYER.studyCount}회`], ['연속 학습', `${PLAYER.streak}일 🔥`]].map(([k, v]) => (
+                {[['보유 펫', `${new Set(game.pets.map((p) => p.speciesId)).size} / ${SPECIES.length}`], ['섬 레벨', `Lv.${PLAYER.islandLevel}`], ['학습 횟수', `${PLAYER.studyCount}회`], ['연속 학습', `${PLAYER.streak}일 🔥`]].map(([k, v]) => (
                   <div key={k} className="stat"><span>{k}</span><b>{v}</b></div>
                 ))}
               </div>

@@ -69,6 +69,7 @@ img { user-select: none; -webkit-user-drag: none; }
 .bar { position: relative; width: 100%; background: rgba(40, 20, 90, .25); border-radius: 999px; overflow: hidden; box-shadow: inset 0 2px 3px rgba(0, 0, 0, .25); }
 .bar-fill { height: 100%; border-radius: 999px; box-shadow: inset 0 2px 0 rgba(255, 255, 255, .45); transition: width .6s; }
 .bar-label { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .6); line-height: 1; }
+.bar[style*="height: 38px"] .bar-label { font-size: 22px; }
 
 /* ── 사이드 메뉴 · 탭 ── */
 .side-menu { display: flex; flex-direction: column; gap: 10px; }
@@ -175,7 +176,7 @@ img { user-select: none; -webkit-user-drag: none; }
 .name-plate { position: absolute; left: 50%; top: 104px; transform: translateX(-50%); z-index: 60; background: rgba(46, 26, 107, .82); border: 3px solid #fff; border-radius: 22px; color: #fff; font-size: 32px; padding: 8px 30px 6px; box-shadow: 0 8px 18px rgba(20, 0, 60, .35); }
 .name-plate .lv { background: #fff; color: var(--purple-d); border-radius: 12px; padding: 0 10px; font-size: 26px; }
 .name-plate .hearts { font-size: 28px; color: #FF6FA8; letter-spacing: 4px; text-shadow: 0 1px 0 #fff; }
-.room-actions { position: absolute; right: 32px; top: 190px; display: flex; flex-direction: column; gap: 16px; z-index: 60; }
+.room-actions { position: absolute; right: 32px; top: 190px; display: flex; flex-direction: column; gap: 16px; z-index: 950; }
 .action-btn { display: flex; align-items: center; gap: 10px; width: 236px; white-space: nowrap; height: 86px; padding: 0 16px; border-radius: 26px; background: linear-gradient(#FFFFFF, #F1EAFF); border: 3px solid #fff; box-shadow: 0 5px 0 #A994E0, 0 10px 18px rgba(30, 10, 70, .3); font-size: 28px; color: var(--purple-d); }
 .action-btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #A994E0; }
 .pet-switcher { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 28px; background: rgba(46, 26, 107, .7); border: 3px solid rgba(255, 255, 255, .7); z-index: 60; }
@@ -185,8 +186,8 @@ img { user-select: none; -webkit-user-drag: none; }
 .item-card { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 116px; padding: 10px 6px; border-radius: 20px; background: #F3EEFF; font-size: 19px; box-shadow: 0 4px 0 #D7CBF5; }
 .item-card.on { background: linear-gradient(#FFF3C9, #FFE08A); box-shadow: 0 0 0 4px #FFC83A; }
 .nuzzle-walk { position: absolute; left: 0; top: 0; z-index: 700; animation-duration: 1.3s; animation-fill-mode: both; animation-timing-function: cubic-bezier(.4, .1, .3, 1); }
-@keyframes nz-in { from { transform: translate(var(--fx), var(--fy)) scale(1); } to { transform: translate(768px, 980px) scale(2.6); } }
-@keyframes nz-out { from { transform: translate(768px, 980px) scale(2.6); } to { transform: translate(var(--fx), var(--fy)) scale(1); } }
+@keyframes nz-in { from { transform: translate(var(--fx), var(--fy)) scale(1); } to { transform: translate(768px, 980px) scale(1.5); } }
+@keyframes nz-out { from { transform: translate(768px, 980px) scale(1.5); } to { transform: translate(var(--fx), var(--fy)) scale(1); } }
 .nuzzle-close { position: absolute; inset: 0; z-index: 700; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(255, 220, 240, .0) 30%, rgba(60, 20, 90, .55) 75%); animation: route-in .3s ease-out; }
 .nz-lens { border-radius: 46%; box-shadow: 0 0 0 10px rgba(255, 255, 255, .9), 0 0 60px 20px rgba(255, 170, 210, .7); }
 .nz-lens.zoom { animation: nz-zoom 1.5s ease-out both; }
@@ -264,3 +265,33 @@ img { user-select: none; -webkit-user-drag: none; }
 .switch span { position: absolute; left: 5px; top: 5px; width: 40px; height: 40px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgba(0, 0, 0, .25); transition: left .2s; }
 .switch.on { background: linear-gradient(#8BE476, #3E9E30); }
 .switch.on span { left: 51px; }
+
+/* ── 알: 학습 진행률 연출 / 장면 보조 ── */
+.hatch-egg.egg-rock > img { animation: egg-rock 2.2s ease-in-out infinite; transform-origin: 50% 100%; }
+.hatch-egg.egg-rock.fast > img { animation-duration: .9s; }
+@keyframes egg-rock { 0%, 100% { transform: translateX(-50%) rotate(-2.5deg); } 50% { transform: translateX(-50%) rotate(2.5deg); } }
+.hatch-egg.egg-ready > img { animation: egg-shake .32s ease-in-out infinite, egg-glow 1.1s ease-in-out infinite alternate; }
+@keyframes egg-glow { from { filter: brightness(1); } to { filter: brightness(1.35) saturate(1.2); } }
+.crack.static path { animation: none; stroke-dashoffset: 0; }
+.egg-spark { position: absolute; font-size: 34px; text-shadow: 0 0 12px currentColor; animation: twinkle 1.6s ease-in-out infinite; pointer-events: none; }
+.pick-ring { position: absolute; width: 150px; height: 44px; margin: -22px 0 0 -75px; border-radius: 50%; border: 5px solid #FFE27A; box-shadow: 0 0 22px #FFE27A; pointer-events: none; animation: pop .35s ease-out both; }
+.pick-tag { position: absolute; transform: translateX(-50%); z-index: 1000; padding: 4px 18px; border-radius: 14px; font-size: 24px; color: #fff; background: rgba(46, 26, 107, .92); border: 2px solid #fff; white-space: nowrap; pointer-events: none; }
+.room-nav { position: absolute; left: 0; right: 0; bottom: 20px; display: flex; justify-content: space-between; padding: 0 40px; z-index: 60; pointer-events: none; }
+.room-nav button { pointer-events: auto; max-width: 420px; height: 76px; padding: 0 30px; border-radius: 38px; font-size: 28px; white-space: nowrap; color: #fff; background: rgba(46, 26, 107, .82); border: 3px solid rgba(255, 255, 255, .85); box-shadow: 0 5px 0 rgba(20, 0, 60, .5); }
+.room-nav button:active { transform: translateY(3px); }
+.room-nav .mid { pointer-events: none; align-self: center; font-size: 22px; color: #fff; text-shadow: 0 2px 4px rgba(0, 0, 0, .5); }
+.deco-badge { transform: translate(-50%, -50%); }
+.room-backdrop { position: absolute; inset: 0; z-index: 900; background: transparent; }
+.random-note { display: flex; flex-direction: column; gap: 2px; text-align: center; margin: 0 0 14px; padding: 10px 16px; border-radius: 18px; background: #FFF; border: 3px dashed #C9B3FF; color: var(--purple-d); font-size: 22px; line-height: 1.3; }
+.random-note span { font-size: 19px; color: var(--ink-soft); }
+
+/* ── 알 분양소 회전 캐러셀 ── */
+.carousel { position: absolute; left: 560px; top: 120px; width: 900px; height: 420px; perspective: 1100px; touch-action: pan-y; user-select: none; }
+.cz-egg { position: absolute; left: 50%; bottom: 14px; width: 250px; margin-left: -125px; display: flex; flex-direction: column; align-items: center; transition: transform .55s cubic-bezier(.3, .8, .3, 1), opacity .4s; transform-style: preserve-3d; }
+.cz-egg img { height: 290px; width: auto; filter: drop-shadow(0 0 14px var(--c)) drop-shadow(0 10px 10px rgba(30, 10, 0, .4)); }
+.cz-egg.on img { filter: drop-shadow(0 0 36px var(--c)) drop-shadow(0 0 10px #fff); animation: floaty 3s ease-in-out infinite; }
+.carousel .page-arrow { position: absolute; top: 150px; z-index: 30; }
+.premium-tag { position: absolute; bottom: -2px; font-size: 18px; letter-spacing: 2px; color: #FFE9A8; background: linear-gradient(#3A1D78, #1D0C45); border: 2px solid #FFD15C; border-radius: 10px; padding: 0 10px; }
+.premium-chip { font-size: 18px; margin-left: 10px; color: #FFE9A8; background: linear-gradient(#3A1D78, #1D0C45); border: 2px solid #FFD15C; border-radius: 10px; padding: 0 10px; vertical-align: middle; -webkit-text-stroke: 0; }
+.night-aura { position: absolute; inset: -40px -50px 0; pointer-events: none; border-radius: 50%; background: radial-gradient(ellipse at 50% 55%, rgba(120, 60, 220, .65), rgba(40, 10, 90, .35) 55%, transparent 72%); animation: twinkle 2.4s ease-in-out infinite; }
+.night-aura i { position: absolute; font-style: normal; font-size: 22px; color: #FFF2B8; text-shadow: 0 0 10px #fff; animation: twinkle 1.6s ease-in-out infinite; }

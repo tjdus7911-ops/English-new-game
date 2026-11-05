@@ -8,7 +8,7 @@ import { Btn, Screen, TopHud } from '../ui/kit';
 import { go } from '../app/router';
 import { PetActor, PetPortrait } from '../pets/PetSprite';
 import { foxEvolution } from '../pets/atlas';
-import { DEMO_PETS } from '../data/mock';
+import { getGame } from '../data/store';
 import { ATTRIBUTE_BY_ID, SPECIES_BY_ID, type StageNo } from '../data/species';
 import { useFx } from '../ui/fx';
 
@@ -16,7 +16,8 @@ type Phase = 'intro' | 'pillar' | 'flash' | 'reveal' | 'done';
 const LABEL = ['Lv.1–14\n(아기)', 'Lv.15–39\n(성장기)', 'Lv.40+\n(완전체)'];
 
 export function EvolveScreen({ params }: { params: URLSearchParams }) {
-  const pet = DEMO_PETS.find((p) => p.uid === params.get('pet')) ?? DEMO_PETS[0];
+  const pets = getGame().pets;
+  const pet = pets.find((p) => p.uid === params.get('pet')) ?? pets[0];
   const sp = SPECIES_BY_ID[pet.speciesId];
   const attr = ATTRIBUTE_BY_ID[sp.attribute];
   const from = Math.min(pet.stage, 2) as StageNo;

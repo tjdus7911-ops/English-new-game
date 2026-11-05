@@ -10,7 +10,7 @@ export function LearnHallScreen() {
       <div className="arch-banner">영어 학습관</div>
       <div className="learn-grid">
         {LEARN_MENU.map((m) => (
-          <button key={m.id} type="button" className="learn-card" onClick={() => go('reward', { from: m.id })} data-testid={`learn-${m.id}`}>
+          <button key={m.id} type="button" className="learn-card" onClick={() => go('reward', { from: m.id, t: Date.now() })} data-testid={`learn-${m.id}`}>
             <Icon name={m.icon} size={130} />
             <span>{m.label}</span>
           </button>

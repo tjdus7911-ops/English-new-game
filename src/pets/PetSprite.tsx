@@ -6,6 +6,8 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { MOTIONS, type MotionId } from '../data/motions';
 import type { StageNo } from '../data/species';
 import { frameOf, petUrl, stageAtlas } from './atlas';
+import { useAnchors } from './anchors';
+import { icon } from '../ui/kit';
 
 export function useMotionFrame(motion: MotionId, startedAt = 0) {
   const def = MOTIONS[motion];
@@ -49,12 +51,34 @@ export function PetPortrait({ slug, stage, frame = 'idle', box, silhouette, clas
   );
 }
 
+/** 장식 부위: 머리 장식은 머리 윗선, 목 장식은 목에 붙인다 */
+export const DECO_SLOT: Record<string, { part: 'head' | 'neck'; size: number; lift: number }> = {
+  ribbon: { part: 'neck', size: 0.24, lift: 0 },
+  flower_crown: { part: 'head', size: 0.34, lift: 0.14 },
+  crown: { part: 'head', size: 0.3, lift: 0.18 },
+};
+
+function DecoOnPet({ slug, stage, frame, height, deco, facing }: { slug: string; stage: StageNo; frame: string; height: number; deco: string; facing: 1 | -1 }) {
+  const a = useAnchors(slug, stage, frame);
+  const sa = stageAtlas(slug, stage);
+  const f = frameOf(slug, stage, frame);
+  const s = height / sa.frames.idle.h;
+  const slot = DECO_SLOT[deco] ?? DECO_SLOT.ribbon;
+  if (!a) return null;
+  const [ax, ay] = a[slot.part];
+  const size = height * slot.size;
+  // 프레임 왼쪽 위 = (-anchor.x*w*s, -anchor.y*h*s) — 그 안에서의 비율 위치
+  const left = -f.anchor[0] * f.w * s + ax * f.w * s;
+  const top = -f.anchor[1] * f.h * s + ay * f.h * s - size * slot.lift;
+  return <img src={icon(deco)} alt="" className="deco-on-pet" draggable={false} style={{ position: 'absolute', left, top, width: size, height: size, transform: `translate(-50%, -50%) scaleX(${facing})`, pointerEvents: 'none', zIndex: 5 }} />;
+}
+
 const BUBBLE: Record<string, string> = { happy: '♪', sad: '💧', love: '♥', sleepy: '…', curious: '?', surprise: '!', excited: '✦', angry: '💢', shy: '///', zzz: 'Zzz' };
 
 /** 움직이는 펫: 모션 트랙 + 좌우 반전 + 감정 말풍선 */
-export function PetActor({ slug, stage, motion, startedAt, height, x, y, facing, onTap, z, label }: {
+export function PetActor({ slug, stage, motion, startedAt, height, x, y, facing, onTap, z, label, deco }: {
   slug: string; stage: StageNo; motion: MotionId; startedAt?: number; height: number; x: number; y: number; facing: 1 | -1;
-  onTap?: () => void; z?: number; label?: string;
+  onTap?: () => void; z?: number; label?: string; deco?: string | null;
 }) {
   const def = MOTIONS[motion];
   const frame = useMotionFrame(motion, startedAt);
@@ -65,6 +89,7 @@ export function PetActor({ slug, stage, motion, startedAt, height, x, y, facing,
       <div className={`pet-track trk-${def.track}`} key={`${motion}-${startedAt}`}>
         <div style={{ transform: `scaleX(${facing})`, position: 'absolute' }}>
           <PetFrame slug={slug} stage={stage} frame={frame} height={height} className="pet-frame" />
+          {deco && <DecoOnPet slug={slug} stage={stage} frame={frame} height={height} deco={deco} facing={facing} />}
         </div>
       </div>
       {onTap && <button type="button" className="pet-hit" onClick={onTap} aria-label={label ?? '펫'} style={{ width: height * 0.8, height: height * 0.95, left: -height * 0.4, top: -height * 0.95 }} />}

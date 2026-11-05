@@ -1,8 +1,9 @@
 /** 공통 UI 요소 — 시안의 'UI 공통 요소 예시' (프로필·재화·메일·공지·설정), 패널, 버튼, 아이콘 */
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { uiUrl } from '../pets/atlas';
 import { go, back, type Route } from '../app/router';
 import { PLAYER } from '../data/mock';
+import { useGame } from '../data/store';
 
 export const icon = (name: string) => uiUrl(`icons/${name}.webp`);
 export const bg = (name: string) => uiUrl(`bg/${name}.webp`);
@@ -67,6 +68,7 @@ export function ProfileChip({ onClick }: { onClick?: () => void }) {
 
 /** 상단 HUD: 프로필 · 코인 · 보석 · (하트) · 메일 · 공지 · 설정 */
 export function TopHud({ hearts, extra, showBack, title }: { hearts?: boolean; extra?: ReactNode; showBack?: boolean; title?: ReactNode }) {
+  const game = useGame();
   return (
     <div className="top-hud">
       <div className="hud-left">
@@ -74,7 +76,7 @@ export function TopHud({ hearts, extra, showBack, title }: { hearts?: boolean; e
         {title && <div className="hud-title">{title}</div>}
       </div>
       <div className="hud-right">
-        <Currency iconName="coin" value={PLAYER.coins} onPlus={() => go('shop')} />
+        <Currency iconName="coin" value={game.coins} onPlus={() => go('shop')} />
         <Currency iconName="gem" value={PLAYER.gems} onPlus={() => go('shop')} />
         {hearts && <Currency iconName="heart" value={PLAYER.hearts} />}
         {extra}
@@ -126,3 +128,31 @@ export const navTo = (r: Route, p?: Record<string, string | number>) => () => go
 let toastHandler: ((m: string) => void) | null = null;
 export const setToastHandler = (h: typeof toastHandler) => { toastHandler = h; };
 export const toast = (m: string) => toastHandler?.(m);
+
+// ── 이미지 미리 받기: 화면에 보이기 전에 받아서 디코딩해 둔다(대사·말풍선이 그림보다 먼저 나오는 현상 방지) ──
+const imgCache = new Map<string, Promise<void>>();
+export function preloadImages(urls: string[]): Promise<void> {
+  return Promise.all(urls.map((u) => {
+    if (!imgCache.has(u)) {
+      imgCache.set(u, new Promise<void>((res) => {
+        const im = new Image();
+        im.onload = () => { (im.decode ? im.decode() : Promise.resolve()).catch(() => undefined).then(() => res()); };
+        im.onerror = () => res();
+        im.src = u;
+      }));
+    }
+    return imgCache.get(u)!;
+  })).then(() => undefined);
+}
+/** 모두 준비되면 true (최대 maxWaitMs 까지만 기다림) */
+export function useImagesReady(urls: string[], maxWaitMs = 6000): boolean {
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const t = setTimeout(() => live && setOk(true), maxWaitMs);
+    void preloadImages(urls).then(() => { if (live) { clearTimeout(t); setOk(true); } });
+    return () => { live = false; clearTimeout(t); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urls.join('|')]);
+  return ok;
+}

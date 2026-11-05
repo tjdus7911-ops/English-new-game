@@ -14,9 +14,10 @@ function parse(): Loc {
   return { route, params: new URLSearchParams(q ?? '') };
 }
 
-export function go(route: Route, params?: Record<string, string | number>) {
+export function go(route: Route, params?: Record<string, string | number>, replace = false) {
   const q = params ? `?${new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]))}` : '';
-  window.location.hash = `/${route}${q}`;
+  if (replace) window.location.replace(`#/${route}${q}`);
+  else window.location.hash = `/${route}${q}`;
 }
 export const back = () => window.history.back();
 

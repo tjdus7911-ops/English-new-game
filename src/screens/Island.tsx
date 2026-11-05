@@ -9,7 +9,7 @@ import { go } from '../app/router';
 import { PetBrain, type Zone } from '../pets/brain';
 import { usePetWorld } from '../pets/usePetWorld';
 import { PetActor } from '../pets/PetSprite';
-import { DEMO_PETS } from '../data/mock';
+import { getGame, useGame } from '../data/store';
 import { SPECIES_BY_ID } from '../data/species';
 import { useFx } from '../ui/fx';
 
@@ -26,12 +26,13 @@ const persp = (y: number) => 0.72 + Math.max(0, Math.min(1, (y - 340) / 320)) * 
 const BUILDINGS = [
   { id: 'learn', label: '영어 학습관', at: [300, 210], hit: [140, 60, 320, 270], to: () => go('learn') },
   { id: 'adopt', label: '알 분양소', at: [1235, 175], hit: [1110, 180, 260, 230], to: () => go('adopt') },
-  { id: 'house', label: '펫 하우스', at: [500, 455], hit: [390, 440, 230, 180], to: () => go('room') },
+  { id: 'house', label: '펫 하우스', at: [500, 455], hit: [390, 440, 230, 180], to: () => { const g = getGame(); go('room', g.eggs[0] ? { egg: g.eggs[0].uid } : g.pets[0] ? { pet: g.pets[0].uid } : undefined); } },
 ] as const;
 
 export function IslandScreen() {
-  const pets = DEMO_PETS.slice(0, 6);
-  const brains = useMemo(() => pets.map((p, i) => new PetBrain({ zone: ISLAND_ZONES[i % ISLAND_ZONES.length], speedScale: 0.8 })), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const game = useGame();
+  const pets = game.pets.slice(0, 6);   // 보유한 펫만 등장
+  const brains = useMemo(() => pets.map((p, i) => new PetBrain({ zone: ISLAND_ZONES[i % ISLAND_ZONES.length], speedScale: 0.8 })), [pets.map((p) => p.uid).join()]); // eslint-disable-line react-hooks/exhaustive-deps
   usePetWorld(brains);
   const fx = useFx();
   const [picked, setPicked] = useState<string | null>(null);
@@ -48,11 +49,15 @@ export function IslandScreen() {
         const h = (p.stage === 1 ? 72 : p.stage === 2 ? 92 : 112) * persp(b.y);
         return (
           <PetActor key={p.uid} slug={sp.slug} stage={p.stage} motion={b.motion} startedAt={b.startedAt} height={h} x={b.x} y={b.y} facing={b.facing} label={sp.nameKo}
+            deco={p.deco}
             onTap={() => {
+              if (picked) return;
               const now = performance.now();
               if (b.isSleeping) b.request('wake_up', now); else b.request('pet_reaction', now);
               fx.burst('heart', b.x, b.y - h, 4);
               setPicked(p.uid);
+              // 선택 효과(이름표·링)를 잠깐 보여준 뒤, 클릭한 펫의 ID 로 그 펫의 육성방에 입장
+              setTimeout(() => go('room', { pet: p.uid }), 650);
             }} />
         );
       })}
@@ -61,7 +66,8 @@ export function IslandScreen() {
       ))}
       {picked && (() => {
         const i = pets.findIndex((p) => p.uid === picked); const b = brains[i];
-        return <button type="button" className="mini-go pop" style={{ left: b.x, top: b.y + 8, zIndex: 1000 }} onClick={() => go('room', { pet: picked })}>육성방 ▶</button>;
+        const sp = SPECIES_BY_ID[pets[i].speciesId];
+        return <><div className="pick-ring" style={{ left: b.x, top: b.y, zIndex: Math.round(b.y) - 1 }} /><div className="pick-tag pop" data-testid="pick-tag" style={{ left: b.x, top: b.y + 10 }}>{sp.nameKo}</div></>;
       })()}
       {fx.layer}
 

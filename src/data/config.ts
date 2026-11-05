@@ -7,8 +7,14 @@ import type { AttributeId } from './species';
 export interface GameConfig {
   /** 부화 확률: 속성별로 A·B·C 가중치 (합이 1일 필요 없음, 비율로 계산) */
   hatchWeights: Record<AttributeId, { A: number; B: number; C: number }>;
-  /** 부화 대기 시간(초) — 0 이면 즉시 부화 가능 */
+  /** 부화 대기 시간(초) — 사용 안 함. 부화는 실제 학습 누적 시간(hatchStudyMin)으로만 진행한다 */
   hatchSeconds: number;
+  /** 알이 부화하려면 필요한 누적 유효 학습 시간(분). 첫 알은 30~60분 기준의 중간값 */
+  hatchStudyMin: { first: number; shop: number };
+  /** 영어 학습 1회(학습 완료 화면)로 쌓이는 유효 학습 시간(분) */
+  studyMinPerSession: number;
+  /** 알 분양 가격(코인) */
+  eggPrice: Record<AttributeId, number>;
   /** 레벨업 필요 경험치: 레벨 n → n+1 */
   expToNext: (level: number) => number;
   /** 단계별 최대 레벨 */
@@ -35,6 +41,9 @@ export const CONFIG: GameConfig = {
     fire: EVEN, water: EVEN, forest: EVEN, lightning: EVEN, moon: EVEN, love: EVEN, snow: EVEN, sun: EVEN, night: EVEN,
   },
   hatchSeconds: 0,
+  hatchStudyMin: { first: 45, shop: 60 },
+  studyMinPerSession: 15,
+  eggPrice: { fire: 250, water: 250, forest: 250, lightning: 250, moon: 250, love: 250, snow: 250, sun: 250, night: 500 },
   expToNext: (level) => 20 + level * 10,
   levelCap: { 1: 10, 2: 20, 3: 30 },
   evolution: {

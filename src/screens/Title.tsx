@@ -1,10 +1,13 @@
 /** ① 타이틀 및 게임 시작 화면 */
-import { Btn, HudIcon, Screen, toast } from '../ui/kit';
+import { useEffect } from 'react';
+import { Btn, HudIcon, Screen, bg, preloadImages, toast } from '../ui/kit';
 import { go } from '../app/router';
 import { PetActor } from '../pets/PetSprite';
-import { eggUrl } from '../pets/atlas';
+import { eggUrl, uiUrl } from '../pets/atlas';
 
 export function TitleScreen() {
+  // 프롤로그(할아버지·알 분양소 배경)를 타이틀에서 미리 받아 둔다
+  useEffect(() => { void preloadImages([bg('egg_shop'), uiUrl('npc_albert.webp')]); }, []);
   return (
     <Screen bgName="title" testId="screen-title">
       <div style={{ position: 'absolute', right: 26, top: 22, zIndex: 10 }}><HudIcon name="settings" label="설정" onClick={() => go('profile', { tab: 'settings' })} /></div>

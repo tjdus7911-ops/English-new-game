@@ -34,3 +34,18 @@ export function preloadAtlas(slug: string, stage: StageNo) {
   if (!loaded.has(url)) loaded.set(url, new Promise((res) => { const i = new Image(); i.onload = i.onerror = () => res(); i.src = url; }));
   return loaded.get(url)!;
 }
+
+/**
+ * 펫의 실제 렌더링 범위 — idle 높이(=표시 높이)를 1 로 했을 때, 모든 모션 프레임이 발밑 기준으로 차지하는 왼쪽·오른쪽·위쪽 최대 길이.
+ * 화면 안전 영역·이동 가능 범위·크기 보정 계산에 쓴다 (날개·꼬리·뿔이 긴 펫은 값이 커진다).
+ */
+export function petExtent(slug: string, stage: StageNo): { side: number; top: number } {
+  const sa = stageAtlas(slug, stage);
+  const ih = sa.frames.idle.h;
+  let side = 0, top = 0;
+  for (const f of Object.values(sa.frames)) {
+    side = Math.max(side, (f.w * Math.max(f.anchor[0], 1 - f.anchor[0])) / ih);
+    top = Math.max(top, (f.h * f.anchor[1]) / ih);
+  }
+  return { side, top };
+}
