@@ -1,0 +1,106 @@
+{
+ "side_head": {
+  "file": "side_head.png",
+  "sheet_bbox": [
+   118,
+   36,
+   572,
+   523
+  ],
+  "size": [
+   502,
+   535
+  ]
+ },
+ "side_torso": {
+  "file": "side_torso.png",
+  "sheet_bbox": [
+   679,
+   142,
+   1278,
+   490
+  ],
+  "size": [
+   647,
+   396
+  ]
+ },
+ "side_leg_front": {
+  "file": "side_leg_front.png",
+  "sheet_bbox": [
+   148,
+   565,
+   350,
+   1013
+  ],
+  "size": [
+   250,
+   496
+  ]
+ },
+ "side_leg_hind": {
+  "file": "side_leg_hind.png",
+  "sheet_bbox": [
+   543,
+   566,
+   824,
+   1013
+  ],
+  "size": [
+   329,
+   495
+  ]
+ },
+ "side_tail": {
+  "file": "side_tail.png",
+  "sheet_bbox": [
+   998,
+   546,
+   1313,
+   1019
+  ],
+  "size": [
+   363,
+   521
+  ]
+ },
+ "front_head": {
+  "file": "front_head.png",
+  "sheet_bbox": [
+   21,
+   221,
+   663,
+   774
+  ],
+  "size": [
+   690,
+   601
+  ]
+ },
+ "front_body": {
+  "file": "front_body.png",
+  "sheet_bbox": [
+   645,
+   285,
+   1145,
+   812
+  ],
+  "size": [
+   548,
+   575
+  ]
+ },
+ "front_tail": {
+  "file": "front_tail.png",
+  "sheet_bbox": [
+   1169,
+   310,
+   1519,
+   732
+  ],
+  "size": [
+   398,
+   470
+  ]
+ }
+}

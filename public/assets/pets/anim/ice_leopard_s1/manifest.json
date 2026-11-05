@@ -2,22 +2,22 @@
  "pet": "PET_SNOW_C",
  "slug": "ice_leopard",
  "stage": 1,
- "source": "Godot 스키닝 리그 v3 (Figma 원본 기반)",
+ "source": "Godot 리그 ice_leopard_s1_v4",
  "anims": {
   "walk": {
    "fps": 30,
    "frames": 30,
    "loop": true,
    "frame": [
-    505,
-    391
+    496,
+    436
    ],
    "origin": [
-    258.3,
-    375.9
+    252.0,
+    427.5
    ],
-   "speed": 40.65,
-   "hd_scale": 0.7,
+   "speed": 48.39,
+   "hd_scale": 0.75,
    "sheets": [
     {
      "file": "walk_0.webp",
@@ -32,20 +32,20 @@
    "frames": 15,
    "loop": true,
    "frame": [
-    530,
-    410
+    511,
+    452
    ],
    "origin": [
-    277.2,
-    392.0
+    265.5,
+    437.2
    ],
-   "speed": 317.33,
-   "hd_scale": 0.7,
+   "speed": 356.25,
+   "hd_scale": 0.75,
    "sheets": [
     {
      "file": "run_0.webp",
-     "cols": 7,
-     "rows": 3,
+     "cols": 8,
+     "rows": 2,
      "count": 15
     }
    ]
@@ -55,20 +55,20 @@
    "frames": 45,
    "loop": true,
    "frame": [
-    318,
-    387
+    381,
+    496
    ],
    "origin": [
-    158.4,
-    379.8
+    191.1,
+    489.3
    ],
    "speed": 0.0,
-   "hd_scale": 0.6,
+   "hd_scale": 0.7,
    "sheets": [
     {
      "file": "idle_0.webp",
-     "cols": 12,
-     "rows": 4,
+     "cols": 10,
+     "rows": 5,
      "count": 45
     }
    ]
@@ -78,20 +78,20 @@
    "frames": 53,
    "loop": false,
    "frame": [
-    322,
-    386
+    435,
+    519
    ],
    "origin": [
-    161.4,
-    379.2
+    218.4,
+    511.0
    ],
    "speed": 0.0,
-   "hd_scale": 0.6,
+   "hd_scale": 0.7,
    "sheets": [
     {
      "file": "pet_react_0.webp",
-     "cols": 12,
-     "rows": 5,
+     "cols": 9,
+     "rows": 6,
      "count": 53
     }
    ]
@@ -102,7 +102,7 @@
    "loop": false,
    "frame": [
     491,
-    468
+    466
    ],
    "origin": [
     245.4,

@@ -14,10 +14,12 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[3]
-SRC = ROOT / 'godot/egg_island_pets/export/frames/ice_leopard_s1_v3'
-INFO = ROOT / 'godot/egg_island_pets/export/ice_leopard_s1_v3.anims.json'
+import os
+RIG = os.environ.get('RIG', 'ice_leopard_s1_v4')
+SRC = ROOT / f'godot/egg_island_pets/export/frames/{RIG}'
+INFO = ROOT / f'godot/egg_island_pets/export/{RIG}.anims.json'
 OUT = ROOT / 'public/assets/pets/anim/ice_leopard_s1'
-SCALE = {'walk': 0.7, 'run': 0.7, 'idle': 0.6, 'pet_react': 0.6, 'nuzzle': 0.6}
+SCALE = {'walk': 0.75, 'run': 0.75, 'idle': 0.7, 'pet_react': 0.7, 'nuzzle': 0.6}
 MAX = 4096
 Q = 84
 
@@ -25,7 +27,7 @@ Q = 84
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     info = json.loads(INFO.read_text())
-    man = {'pet': 'PET_SNOW_C', 'slug': 'ice_leopard', 'stage': 1, 'source': 'Godot 스키닝 리그 v3 (Figma 원본 기반)', 'anims': {}}
+    man = {'pet': 'PET_SNOW_C', 'slug': 'ice_leopard', 'stage': 1, 'source': f'Godot 리그 {RIG}', 'anims': {}}
     total = 0
     mem = 0
     for name, sc in SCALE.items():
