@@ -157,8 +157,26 @@ def cut_tile(t: Image.Image, grid):
     rgba = remove_bg(t, inset=0)
     out = []
     for (name, src, raw), (_, _, cut) in zip(cells(t, grid), cells(rgba, grid)):
-        out.append((name, src, cut.crop((3, 3, cut.width - 3, cut.height - 3)), raw))
+        out.append((name, src, drop_edge_bleed(cut.crop((3, 3, cut.width - 3, cut.height - 3))), raw))
     return out
+
+
+def drop_edge_bleed(im: Image.Image) -> Image.Image:
+    """이웃 칸에서 넘어온 조각 제거: 칸 가장자리에 닿아 있고 본체보다 훨씬 작은 덩어리는 지운다.
+    (떠 있는 하트·반짝이처럼 가장자리에 닿지 않는 작은 효과는 유지)"""
+    arr = np.asarray(im).copy()
+    al = arr[..., 3] > 24
+    lab, n = ndimage.label(al, structure=np.ones((3, 3)))
+    if n <= 1:
+        return im
+    sizes = ndimage.sum(al, lab, range(1, n + 1))
+    main = int(np.argmax(sizes)) + 1
+    edge = set(np.unique(np.concatenate([lab[:, 0], lab[:, -1], lab[0], lab[-1]]))) - {0, main}
+    for k in edge:
+        if sizes[k - 1] < 0.35 * sizes[main - 1]:
+            grow = ndimage.binary_dilation(lab == k, iterations=2)
+            arr[grow & (lab != main), 3] = 0
+    return Image.fromarray(arr, 'RGBA')
 
 
 def build_stage(frames_src, rel: str, meta_out: dict):
