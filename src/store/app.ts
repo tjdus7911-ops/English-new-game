@@ -1,0 +1,843 @@
+import { VOCAB_BY_ID } from '@/content/vocab';
+import { create } from 'zustand';
+import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
+import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
+import type {
+  DecorationId, ReviewItem, ReviewKind, Settings, SpeakingAttempt, StudyLogEntry, UserAnswer, WrongNote,
+} from '@/domain/types';
+import { toDateKey, isValidDateKey } from '@/domain/date';
+import { applyReviewResult, createReviewItem, dueItems } from '@/domain/learning/srs';
+import { computeMastery } from '@/domain/learning/mastery';
+import {
+  acquireCharacter, applyGrowth, discoveryAvailability, earnStars, grantReward, growthCheck, initialGameState, markRestudied, resolveDiscovery,
+  setPartner as setPartnerFn, updateDiscoveries, updateVillage, type GameState,
+} from '@/domain/game/state';
+import {
+  buyItem, commitPlacements, computeHouseLevel, grantItem, initialHomeState, spaceConditionsMet, unlockSpace,
+  type HomeContext, type HomeState, type SpaceId,
+} from '@/domain/game/home';
+import { QUESTS, QUEST_BY_ID, claimKey, inWeek, questStatus, weekStartOf, type QuestContext } from '@/domain/game/quests';
+import { COMMON_POOL, RARE_ID, SPECIAL_ID, CHARACTER_BY_ID } from '@/content/characters';
+import { GRAMMAR_UNITS } from '@/content/grammar';
+import { DEFAULT_ITEMS, DEFAULT_PLACEMENTS, EVOLUTION_REWARD, FURNITURE_BY_ID } from '@/content/furniture';
+import { initialMansionState, type MansionState } from '@/domain/mansion/types';
+import { changeVariant, grantClue, recordQuiz, recordStageResult, renovate, startStage, storyComplete, storyStart, type RenovateError, type StageResult } from '@/domain/mansion/logic';
+import { STAGE_BY_ID } from '@/content/mansion/stages';
+import { LIVING_TASK_BY_ID } from '@/content/mansion/tasks';
+import { gradeAnswer } from '@/domain/learning/grading';
+import { migrateRenovationsV2, migrateRenovationsV3 } from '@/domain/mansion/migrate';
+import { completeSet, completeSetReview as completeSetReviewFn, grantDailyBonus, initialRewards, type RewardsState, type SetOutcome } from '@/domain/rewards/logic';
+import type { SetType } from '@/config/rewards';
+import { audioSupported } from '@/lib/audio';
+
+export const STORE_KEY = 'english-village-v1';
+export const STORE_VERSION = 6;
+
+export const now = () => Date.now();
+const newUserId = () => `local-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+export const today = () => toDateKey(now());
+
+export type Celebration =
+  | { kind: 'reward'; text: string; id: string }
+  | { kind: 'character'; characterId: string; id: string }
+  | { kind: 'levelup'; characterId: string; id: string }
+  | { kind: 'decoration'; decoration: DecorationId; id: string }
+  | { kind: 'story'; storyId: string; id: string };
+
+export interface Profile {
+  onboarded: boolean;
+  purpose: string | null;
+  selfLevel: string | null;
+  dailyMinutes: number;
+  levelTest: { done: boolean; level: string | null; byLevel: Record<string, { correct: number; total: number }> | null; date?: string };
+  /** 기기 로컬 사용자 id — 서버 동기화 어댑터의 키 (lib/sync.ts) */
+  userId?: string;
+  nickname?: string;
+  /** 학습 목표 (예: '여행 영어', '시험 대비') */
+  goal?: string;
+}
+
+export interface LearningState {
+  answers: UserAnswer[];
+  reviews: Record<string, ReviewItem>;
+  wrongNotes: Record<string, WrongNote>;
+  learnedWords: Record<string, string>; // wordId → 학습일
+  steps: Record<string, string>; // `${unitId}:${step}` → 완료일
+  lectureViewed: Record<string, string>;
+  unitTests: Record<string, { date: string; correct: number; total: number; passed: boolean }>;
+  a1Exam: { date: string; correct: number; total: number; passed: boolean } | null;
+  listeningDone: Record<string, string>;
+  speakingAttempts: SpeakingAttempt[];
+  expressionsDone: Record<string, string>;
+  savedExpressions: string[];
+  /** 저장한 단어 (단어 id) — 단어장 '저장한 단어' */
+  savedWords: string[];
+  dramasDone: Record<string, string>;
+  readingsDone: Record<string, string>;
+  log: StudyLogEntry[];
+  reviewSkippedOn: string | null;
+  studySeconds: Record<string, number>; // 날짜 → 학습 화면 체류 시간(초)
+  /** 외운 단어 표시: wordId → 날짜 */
+  memorized?: Record<string, string>;
+  /** 동화 읽기 위치: storyId → { 문단 index, 시각 } */
+  readerPos?: Record<string, { para: number; at: number; done?: boolean }>;
+  /** 작문 기록: itemId → 마지막 답안 */
+  writings?: Record<string, { text: string; ok: boolean; at: number }>;
+}
+
+export interface AppState {
+  version: number;
+  profile: Profile;
+  settings: Settings;
+  learning: LearningState;
+  game: GameState;
+  home: HomeState;
+  /** 퀘스트 보상 수령 기록: claimKey → 수령 시각 */
+  questClaims: Record<string, number>;
+  /** 저택 리모델링 (v4) — 별 원장(mansion.ledger)이 게임 전체의 단일 별 화폐 (v5) */
+  mansion: MansionState;
+  /** 학습 세트 보상 기록·오늘의 퀘스트 활동 (v5) */
+  rewards: RewardsState;
+  celebrations: Celebration[];
+  recovered: boolean;
+}
+
+const initialLearning = (): LearningState => ({
+  answers: [], reviews: {}, wrongNotes: {}, learnedWords: {}, steps: {}, lectureViewed: {}, unitTests: {}, a1Exam: null,
+  listeningDone: {}, speakingAttempts: [], expressionsDone: {}, savedExpressions: [], savedWords: [], dramasDone: {}, readingsDone: {}, log: [], reviewSkippedOn: null, studySeconds: {},
+});
+
+const initialHome = (): HomeState => ({ ...initialHomeState(DEFAULT_ITEMS), placements: { house: { ...DEFAULT_PLACEMENTS }, garden: {} } });
+
+export const initialState = (): AppState => ({
+  version: STORE_VERSION,
+  profile: { onboarded: false, purpose: null, selfLevel: null, dailyMinutes: 20, levelTest: { done: false, level: null, byLevel: null }, userId: newUserId() },
+  settings: { dailyNewWords: 10, notificationsOn: true, notifyTime: '20:00', reduceMotion: false, recordingConsent: false, speechRate: 1, sound: true, textScale: 1 },
+  learning: initialLearning(),
+  game: initialGameState(),
+  home: initialHome(),
+  questClaims: {},
+  mansion: initialMansionState(),
+  rewards: initialRewards(),
+  celebrations: [],
+  recovered: false,
+});
+
+// ─────────────────────────── 저장소 (IndexedDB) ───────────────────────────
+const idbStorage: StateStorage = {
+  getItem: async (name) => {
+    try { return (await idbGet<string>(name)) ?? null; } catch { return null; }
+  },
+  setItem: async (name, value) => { try { await idbSet(name, value); } catch { /* 저장 실패는 다음 변경 시 재시도 */ } },
+  removeItem: async (name) => { try { await idbDel(name); } catch { /* noop */ } },
+};
+
+/** 저장 데이터 검증 — 형식이 깨졌으면 null */
+export function validatePersisted(raw: unknown): AppState | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const s = raw as Partial<AppState>;
+  if (!s.profile || !s.learning || !s.game || !s.settings) return null;
+  const l = s.learning as Partial<LearningState>;
+  if (!Array.isArray(l.answers) || typeof l.reviews !== 'object' || l.reviews === null) return null;
+  for (const r of Object.values(l.reviews)) if (!r || !isValidDateKey((r as ReviewItem).due)) return null;
+  const g = s.game as Partial<GameState>;
+  if (typeof g.characters !== 'object' || typeof g.ledger !== 'object' || !g.village || !Array.isArray(g.village.unlocked)) return null;
+  if (s.home && (typeof s.home.inventory !== 'object' || typeof s.home.placements !== 'object')) return null;
+  if (s.mansion && (!Array.isArray(s.mansion.ledger) || typeof s.mansion.renovations !== 'object' || typeof s.mansion.stages !== 'object')) return null;
+  return s as AppState;
+}
+
+/** 버전 마이그레이션: 누락된 필드를 기본값으로 채우고 기존 기록은 유지 */
+export function migrate(persisted: unknown, fromVersion: number): AppState {
+  const base = initialState();
+  const s = (persisted ?? {}) as Partial<AppState> & { game?: Partial<GameState> & { pointsEarned?: number; pointsSpent?: number; discovery?: Record<string, unknown> } };
+  const oldGame = (s.game ?? {}) as Partial<GameState> & { pointsEarned?: number; pointsSpent?: number };
+  // v2 → v3: 발견 포인트를 별로 이전 (잔액 그대로), 발견 상태 구조 변경
+  const stars = { ...(oldGame.stars ?? {}) };
+  if (fromVersion < 3 && typeof oldGame.pointsEarned === 'number') {
+    const bal = (oldGame.pointsEarned ?? 0) - (oldGame.pointsSpent ?? 0);
+    if (bal > 0) stars['migrate:points-v2'] = { eventId: 'migrate:points-v2', amount: bal, reason: '발견 포인트 → 별 전환', at: 0 };
+  }
+  const disc = oldGame.discovery as Partial<GameState['discovery']> | undefined;
+  const merged: AppState = {
+    ...base, ...s,
+    profile: { ...base.profile, userId: s.profile?.userId ?? newUserId(), ...(s.profile ?? {}), levelTest: { ...base.profile.levelTest, ...(s.profile?.levelTest ?? {}) } },
+    settings: { ...base.settings, ...(s.settings ?? {}) },
+    learning: { ...base.learning, ...(s.learning ?? {}) },
+    game: {
+      ...base.game, ...oldGame, stars,
+      discovery: { unlocked: Array.isArray(disc?.unlocked) ? disc!.unlocked : [], restudy: (disc?.restudy as Record<string, string>) ?? {}, attempts: (disc?.attempts as number) ?? 0 },
+      village: { ...base.game.village, ...(oldGame.village ?? {}) },
+    } as GameState,
+    home: { ...base.home, ...(s.home ?? {}), placements: { ...base.home.placements, ...(s.home?.placements ?? {}) } },
+    questClaims: { ...(s.questClaims ?? {}) },
+    // v3 → v4: 저택 리모델링 상태 추가 (기존 기록은 그대로)
+    // v4 → v5: 리모델링 미션 R01~R10 → L01~L11 (완료·선택·소비 별 유지, 원본은 legacyRenovations 보관)
+    // v5 → v6: L01~L11 → 거실 40개 작업 A1~E40 (완료·선택·소비 별 유지, 원본은 legacyRenovations 보관)
+    mansion: migrateRenovationsV3(migrateRenovationsV2({ ...base.mansion, ...(s.mansion ?? {}), story: { ...base.mansion.story, ...(s.mansion?.story ?? {}) } })),
+    rewards: { ...base.rewards, ...(s.rewards ?? {}) },
+    version: STORE_VERSION,
+  };
+  delete (merged.game as unknown as Record<string, unknown>).pointsEarned;
+  delete (merged.game as unknown as Record<string, unknown>).pointsSpent;
+  return merged;
+}
+
+// ─────────────────────────── 파생 값 ───────────────────────────
+export function studiedOn(l: LearningState, date: string) {
+  return l.log.some((e) => e.date === date && e.kind !== 'level-test');
+}
+export function studiedConceptsOn(l: LearningState, date: string) {
+  return [...new Set(l.answers.filter((a) => a.date === date && a.source !== 'level-test').map((a) => a.conceptId))];
+}
+export const lecturesCompleted = (l: LearningState) => GRAMMAR_UNITS.filter((u) => l.steps[`${u.id}:practice`]).length;
+export function homeContext(s: Pick<AppState, 'learning'>): HomeContext {
+  const a = s.learning.a1Exam;
+  return { lecturesCompleted: lecturesCompleted(s.learning), unitTestsPassed: Object.values(s.learning.unitTests).filter((t) => t.passed).length, a1ExamScore: a ? Math.round((a.correct / a.total) * 100) : null };
+}
+export function villageStats(s: AppState) {
+  return {
+    studySessions: s.learning.log.filter((e) => e.kind !== 'level-test').length,
+    wordsLearned: Object.keys(s.learning.learnedWords).length,
+    lecturesCompleted: lecturesCompleted(s.learning),
+    unitTestsPassed: Object.values(s.learning.unitTests).filter((t) => t.passed).length,
+    charactersOwned: Object.keys(s.game.characters).length,
+    gardenOpen: !!s.home.spaces.garden,
+  };
+}
+export function milestoneStats(l: LearningState) {
+  return {
+    wordsLearned: Object.keys(l.learnedWords).length,
+    lecturesCompleted: lecturesCompleted(l),
+    listeningDone: Object.keys(l.listeningDone).length,
+    speakingSentences: new Set(l.speakingAttempts.map((a) => a.sentenceId)).size,
+  };
+}
+export const discoveryInfo = (s: AppState) => discoveryAvailability(s.game, COMMON_POOL.map((c) => c.id));
+
+export function questContext(s: AppState, date = today()): QuestContext {
+  const l = s.learning;
+  const tl = l.log.filter((e) => e.date === date);
+  const weekStart = weekStartOf(date);
+  const wl = l.log.filter((e) => inWeek(e.date, weekStart) && e.kind !== 'level-test');
+  const due = dueItems(l.reviews, date).length;
+  const reviewedToday = tl.some((e) => e.kind === 'review');
+  return {
+    date, weekStart,
+    today: {
+      words: Object.values(l.learnedWords).filter((d) => d === date).length,
+      wordQuizDone: tl.some((e) => e.kind === 'words'),
+      grammarLessons: new Set(tl.filter((e) => e.kind === 'practice' && e.completed).map((e) => e.refId)).size,
+      listening: new Set(tl.filter((e) => e.kind === 'listening' || e.kind === 'situation').map((e) => e.refId)).size,
+      speakingSentences: new Set(l.speakingAttempts.filter((a) => a.date === date).map((a) => a.sentenceId)).size,
+      reviewDone: reviewedToday && due === 0,
+      reviewDue: due,
+      expressions: new Set(tl.filter((e) => e.kind === 'expression' || e.kind === 'situation' || e.kind === 'video').map((e) => e.refId)).size,
+    },
+    week: {
+      studyDays: new Set(wl.map((e) => e.date)).size,
+      grammarUnits: GRAMMAR_UNITS.filter((u) => { const d = l.steps[`${u.id}:practice`]; return d && inWeek(d, weekStart); }).length,
+      listeningSpeaking: wl.filter((e) => e.kind === 'listening' || e.kind === 'situation' || e.kind === 'speaking' || e.kind === 'video').length,
+    },
+    totals: {
+      studySessions: l.log.filter((e) => e.kind !== 'level-test').length,
+      unitTestsPassed: Object.values(l.unitTests).filter((t) => t.passed).length,
+      charactersOwned: Object.keys(s.game.characters).length,
+      evolved: Object.values(s.game.characters).filter((c) => c.level === 2).length,
+      purchases: s.home.purchases,
+      decorateCount: s.home.decorateCount,
+      gardenOpen: !!s.home.spaces.garden,
+      gardenEligible: !!s.home.spaces.garden || spaceConditionsMet('garden', s.home, homeContext(s)),
+    },
+  };
+}
+
+export function questList(s: AppState) {
+  const c = questContext(s);
+  return QUESTS.map((q) => ({ q, status: questStatus(q, c, s.questClaims), progress: Math.min(q.target, q.progress(c)), lockReason: q.locked?.(c) ?? null }));
+}
+export const claimableCount = (s: AppState) => questList(s).filter((x) => x.status === 'completed').length;
+
+let seq = 0;
+const cid = () => `${now().toString(36)}-${(seq++).toString(36)}`;
+
+// ─────────────────────────── 공통 처리 ───────────────────────────
+interface StudyEvent {
+  log: Omit<StudyLogEntry, 'id' | 'date' | 'at'>;
+  answers?: Omit<UserAnswer, 'id' | 'date' | 'at'>[];
+  reviewsToCreate?: { kind: ReviewKind; refId: string; conceptId: string }[];
+  /** stars: 별(단원 평가 등), xp: 대표 파트너 성장 경험치. eventId 로 중복 지급 방지 */
+  rewards?: { eventId: string; stars?: number; xp?: number; reason: string }[];
+  mutate?: (l: LearningState, date: string) => LearningState;
+}
+
+function applyAnswers(l: LearningState, answers: UserAnswer[]): LearningState {
+  const wrongNotes = { ...l.wrongNotes };
+  for (const a of answers) {
+    const prev = wrongNotes[a.questionId];
+    if (!a.correct) {
+      wrongNotes[a.questionId] = prev
+        ? { ...prev, lastWrongOn: a.date, wrongCount: prev.wrongCount + 1, lastGiven: a.given, resolved: false }
+        : { questionId: a.questionId, conceptId: a.conceptId, firstWrongOn: a.date, lastWrongOn: a.date, wrongCount: 1, lastGiven: a.given, resolved: false, source: a.source };
+    } else if (prev && !prev.resolved && (a.source === 'review' || a.source === 'free' || a.date !== prev.lastWrongOn)) {
+      wrongNotes[a.questionId] = { ...prev, resolved: true };
+    }
+  }
+  return { ...l, answers: [...l.answers, ...answers].slice(-5000), wrongNotes };
+}
+
+function queueStory(s: AppState, storyId: string): AppState {
+  if (s.home.storiesSeen.includes(storyId)) return s;
+  return { ...s, home: { ...s.home, storiesSeen: [...s.home.storiesSeen, storyId] }, celebrations: [...s.celebrations, { kind: 'story', storyId, id: cid() }] };
+}
+
+function postProcess(s: AppState, date: string): AppState {
+  let next = s;
+  const cel: Celebration[] = [];
+  // 발견 조건 (학습 성취)
+  const d = updateDiscoveries(next.game, milestoneStats(next.learning));
+  next = { ...next, game: d.state };
+  if (d.opened.length) next = queueStory(next, 'first-discovery');
+  // 마을 성장
+  const v = updateVillage(next.game, villageStats(next));
+  next = { ...next, game: v.state };
+  cel.push(...v.newlyUnlocked.map((x): Celebration => ({ kind: 'decoration', decoration: x, id: cid() })));
+  if (v.leveledTo === 2 || (v.leveledTo === 3 && !next.home.storiesSeen.includes('village-2'))) next = queueStory(next, 'village-2');
+  if (v.leveledTo === 3) next = queueStory(next, 'village-3');
+  // 캐릭터 진화 (보유 캐릭터 각각 — 파트너 변경과 무관하게 기록 유지)
+  const mastery = computeMastery(next.learning.answers);
+  for (const uc of Object.values(next.game.characters)) {
+    const ch = CHARACTER_BY_ID[uc.id];
+    const g = applyGrowth(next.game, uc.id, growthCheck(uc, mastery[ch.conceptId]), date);
+    if (g.grew) {
+      next = { ...next, game: g.state };
+      cel.push({ kind: 'levelup', characterId: uc.id, id: cid() });
+      const it = grantItem(next.home, EVOLUTION_REWARD[uc.id], now()); // 진화 특별 가구
+      next = { ...next, home: it.home };
+      if (it.granted) cel.push({ kind: 'reward', text: `진화 선물: ${FURNITURE_BY_ID[EVOLUTION_REWARD[uc.id]].name}`, id: cid() });
+      next = queueStory(next, 'first-evolution');
+    }
+  }
+  // 집 성장
+  const hl = computeHouseLevel(next.home, homeContext(next));
+  if (hl > next.home.houseLevel) {
+    next = { ...next, home: { ...next.home, houseLevel: hl } };
+    if (hl >= 2) next = queueStory(next, 'house-lv2');
+  }
+  if (next.learning.log.some((e) => e.kind !== 'level-test')) next = queueStory(next, 'first-study');
+  return { ...next, celebrations: [...next.celebrations, ...cel] };
+}
+
+function grantPartnerXp(game: GameState, eventId: string, xp: number, reason: string, cel: Celebration[]): GameState {
+  const pid = game.partnerId;
+  if (!xp || !pid) return game;
+  const g = grantReward(game, { eventId: `${eventId}:xp`, type: 'growth-xp', amount: xp, characterId: pid, reason, at: now() });
+  if (g.granted) cel.push({ kind: 'reward', text: `${CHARACTER_BY_ID[pid].name} 성장 경험치 +${xp}`, id: cid() });
+  return g.state;
+}
+
+function applyStudyEvent(s: AppState, ev: StudyEvent): AppState {
+  const date = today();
+  const at = now();
+  let learning = s.learning;
+  if (ev.answers?.length) learning = applyAnswers(learning, ev.answers.map((a) => ({ ...a, id: cid(), date, at })));
+  let reviews = learning.reviews;
+  for (const r of ev.reviewsToCreate ?? []) reviews = createReviewItem(reviews, r.kind, r.refId, r.conceptId, date).items;
+  learning = { ...learning, reviews, log: [...learning.log, { ...ev.log, id: cid(), date, at }].slice(-3000) };
+  if (ev.mutate) learning = ev.mutate(learning, date);
+
+  let game = markRestudied(s.game); // 새 학습 이벤트 → 발견 재도전 허용
+  const cel: Celebration[] = [];
+  for (const r of ev.rewards ?? []) {
+    if (r.stars) {
+      const g = earnStars(game, r.eventId, r.stars, r.reason, at);
+      game = g.state;
+      if (g.granted) cel.push({ kind: 'reward', text: `이전 마을 포인트 +${r.stars} · ${r.reason}`, id: cid() });
+    }
+    if (r.xp) game = grantPartnerXp(game, r.eventId, r.xp, r.reason, cel);
+  }
+  return postProcess({ ...s, learning, game, celebrations: [...s.celebrations, ...cel] }, date);
+}
+
+// ─────────────────────────── 스토어 ───────────────────────────
+type Ans = Omit<UserAnswer, 'id' | 'date' | 'at'>;
+
+export interface Actions {
+  completeOnboarding: (p: { purpose: string; selfLevel: string; minutes: number; dailyNewWords: number; notifications: boolean }) => void;
+  saveLevelTest: (level: string, byLevel: Record<string, { correct: number; total: number }>, answers: Ans[]) => void;
+  completeWords: (unitId: string, wordIds: string[], answers: Ans[]) => void;
+  viewLecture: (unitId: string) => void;
+  completePractice: (unitId: string, answers: Ans[]) => void;
+  completeWriting: (unitId: string, answers: Ans[]) => void;
+  completeUnitTest: (unitId: string, answers: Ans[]) => { passed: boolean };
+  completeListening: (dialogueId: string, conceptId: string, title: string, answers: Ans[], kind?: 'listening' | 'situation') => void;
+  completeSpeaking: (unitId: string | null, attempts: SpeakingAttempt[], conceptBySentence: Record<string, string>) => void;
+  completeReading: (readingId: string, conceptId: string, title: string, answers: Ans[]) => void;
+  completeExpression: (exprId: string, conceptId: string, title: string, answers: Ans[]) => void;
+  completeDrama: (dramaId: string, title: string, answers: Ans[]) => void;
+  completeA1Exam: (answers: Ans[]) => { passed: boolean };
+  completeReview: (results: { key: string; correct: boolean; answer: Ans }[]) => void;
+  freePractice: (title: string, answers: Ans[]) => void;
+  skipReviewToday: () => void;
+  toggleSaveExpression: (id: string) => void;
+  toggleSaveWord: (id: string) => void;
+  /** 주제·난이도 단어장 챕터(5단어) 완료: 학습 기록은 단어 id 기준으로 통합, 첫 완료 시 별·XP 소량 */
+  completeWordSet: (chapterId: string, title: string, wordIds: string[], answers: Ans[]) => void;
+  resolveDiscoveryQuiz: (characterId: string, correct: number, answers: Ans[]) => { success: boolean };
+  setPartner: (id: string) => boolean;
+  claimQuest: (questId: string) => { ok: boolean; stars: number; items: string[] };
+  buyFurniture: (itemId: string) => { ok: boolean; error?: string };
+  commitDecor: (space: SpaceId, draft: Record<string, string | null>) => { ok: boolean; changed: boolean; error?: string };
+  addStudyTime: (sec: number) => void;
+  updateSettings: (p: Partial<Settings>) => void;
+  dismissCelebration: (id: string) => void;
+  markDecorationsSeen: () => void;
+  resetAll: () => void;
+  // ── 저택 리모델링 ──
+  startMansionStage: (stageId: string) => boolean;
+  completeMansionStage: (stageId: string, attemptId: string, answers: Ans[]) => StageResult | null;
+  renovateTask: (taskId: string, variantId?: string) => { ok: boolean; error?: RenovateError };
+  changeTaskVariant: (taskId: string, variantId: string) => boolean;
+  markMansionStory: (id: string) => void;
+  // ── 스토리 (각 단계 즉시 저장, 멱등) ──
+  storyBegin: (eventId: string) => void;
+  storyGrantClue: (clueId: string, eventId: string) => boolean;
+  storyAnswerQuiz: (quizId: string, correct: boolean) => void;
+  storyFinish: (eventId: string) => void;
+  // ── 학습 세트 보상 (통합 별) ──
+  completeLearningSet: (p: { setId: string; type: SetType; attemptId: string; title: string; answers: Ans[]; conceptId?: string }) => SetOutcome & { bonus: boolean; wrongIds: string[] };
+  completeSetReview: (setId: string, answers: Ans[]) => { starsGranted: number; bonus: boolean };
+  toggleMemorized: (wordId: string) => void;
+  saveReaderPos: (storyId: string, para: number, done?: boolean) => void;
+  saveWriting: (itemId: string, text: string, ok: boolean) => void;
+  updateProfile: (p: Partial<Pick<Profile, 'nickname' | 'goal'>>) => void;
+}
+
+const passRate = (answers: Ans[]) => (answers.length ? answers.filter((a) => a.correct).length / answers.length : 0);
+
+export const useApp = create<AppState & Actions & { hydrated: boolean }>()(
+  persist(
+    (set, get) => ({
+      ...initialState(),
+      hydrated: false,
+
+      completeOnboarding: (p) => set((s) => {
+        const next: AppState = {
+          ...s,
+          profile: { ...s.profile, onboarded: true, purpose: p.purpose, selfLevel: p.selfLevel, dailyMinutes: p.minutes },
+          settings: { ...s.settings, dailyNewWords: p.dailyNewWords, notificationsOn: p.notifications },
+        };
+        return queueStory(next, 'first-enter');
+      }),
+
+      saveLevelTest: (level, byLevel, answers) => set((s) => {
+        const date = today();
+        const at = now();
+        const learning = { ...s.learning, answers: [...s.learning.answers, ...answers.map((a) => ({ ...a, id: cid(), date, at }))], log: [...s.learning.log, { id: cid(), date, at, kind: 'level-test' as const, refId: 'level-test', title: '레벨 진단', correct: answers.filter((a) => a.correct).length, total: answers.length }] };
+        return { learning, profile: { ...s.profile, levelTest: { done: true, level, byLevel, date } } };
+      }),
+
+      completeWords: (unitId, wordIds, answers) => set((s) => {
+        const before = Object.keys(s.learning.learnedWords).length;
+        const newOnes = wordIds.filter((w) => !s.learning.learnedWords[w]);
+        const after = before + newOnes.length;
+        const rewards: StudyEvent['rewards'] = [];
+        // 신규 단어 10개마다 성장 XP (단어 누적 개수 기준 고유 이벤트 → 같은 단어 반복으로는 지급되지 않음)
+        for (let k = Math.floor(before / 10) + 1; k <= Math.floor(after / 10); k++) rewards.push({ eventId: `vocab10:${k}`, xp: 5, reason: `신규 단어 ${k * 10}개 달성` });
+        return applyStudyEvent(s, {
+          log: { kind: 'words', refId: unitId, title: '영단어 학습', correct: answers.filter((a) => a.correct).length, total: answers.length },
+          answers, rewards,
+          reviewsToCreate: wordIds.map((w) => ({ kind: 'word' as const, refId: w, conceptId: unitId })),
+          mutate: (l, date) => {
+            const learnedWords = { ...l.learnedWords };
+            for (const w of newOnes) learnedWords[w] = date;
+            const steps = { ...l.steps };
+            if (!steps[`${unitId}:words`]) steps[`${unitId}:words`] = date;
+            return { ...l, learnedWords, steps };
+          },
+        });
+      }),
+
+      viewLecture: (unitId) => set((s) => (s.learning.lectureViewed[unitId] ? s : { learning: { ...s.learning, lectureViewed: { ...s.learning.lectureViewed, [unitId]: today() }, steps: { ...s.learning.steps, [`${unitId}:grammar`]: s.learning.steps[`${unitId}:grammar`] ?? today() } } })),
+
+      completePractice: (unitId, answers) => set((s) => {
+        const u = GRAMMAR_UNITS.find((x) => x.id === unitId)!;
+        // 강의를 열었다는 이유만으로 완료하지 않는다: 강의 열람 + 확인 문제 전체 수행
+        const done = !!s.learning.lectureViewed[unitId] && answers.length >= u.practice.length;
+        return applyStudyEvent(s, {
+          log: { kind: 'practice', refId: unitId, title: `${u.title} 확인 문제`, correct: answers.filter((a) => a.correct).length, total: answers.length, completed: done },
+          answers,
+          reviewsToCreate: done ? [{ kind: 'grammar', refId: unitId, conceptId: unitId }] : [],
+          rewards: done ? [{ eventId: `grammar:${unitId}`, xp: 10, reason: `${u.title} 강의·확인 문제 완료` }] : [],
+          mutate: (l, date) => (done && !l.steps[`${unitId}:practice`] ? { ...l, steps: { ...l.steps, [`${unitId}:practice`]: date } } : l),
+        });
+      }),
+
+      completeWriting: (unitId, answers) => set((s) => applyStudyEvent(s, {
+        log: { kind: 'writing', refId: unitId, title: '기초 영작', correct: answers.filter((a) => a.correct).length, total: answers.length },
+        answers,
+        mutate: (l, date) => (l.steps[`${unitId}:writing`] ? l : { ...l, steps: { ...l.steps, [`${unitId}:writing`]: date } }),
+      })),
+
+      completeUnitTest: (unitId, answers) => {
+        const passed = passRate(answers) >= 0.7;
+        set((s) => {
+          const u = GRAMMAR_UNITS.find((x) => x.id === unitId)!;
+          let next = applyStudyEvent(s, {
+            log: { kind: 'test', refId: unitId, title: `${u.title} 단원 평가`, correct: answers.filter((a) => a.correct).length, total: answers.length },
+            answers,
+            reviewsToCreate: [{ kind: 'grammar', refId: unitId, conceptId: unitId }],
+            rewards: passed ? [{ eventId: `unittest:${unitId}`, stars: 10, xp: 10, reason: `${u.title} 단원 평가 통과` }] : [],
+            mutate: (l, date) => {
+              const prev = l.unitTests[unitId];
+              const rec = { date, correct: answers.filter((a) => a.correct).length, total: answers.length, passed };
+              const unitTests = { ...l.unitTests, [unitId]: prev?.passed && !passed ? prev : rec }; // 통과 기록은 덮어쓰지 않음
+              const steps = passed && !l.steps[`${unitId}:test`] ? { ...l.steps, [`${unitId}:test`]: date } : l.steps;
+              return { ...l, unitTests, steps };
+            },
+          });
+          if (passed) {
+            // 단원 평가 첫 통과 → 희귀 캐릭터 확정 획득
+            const r = acquireCharacter(next.game, RARE_ID, today(), 'rare:first-unit-test', '단원 평가 통과', now());
+            if (r.acquired) next = postProcess(queueStory({ ...next, game: r.state, celebrations: [...next.celebrations, { kind: 'character', characterId: RARE_ID, id: cid() }] }, 'first-character'), today());
+          }
+          return next;
+        });
+        return { passed };
+      },
+
+      completeListening: (dialogueId, conceptId, title, answers, kind = 'listening') => set((s) => applyStudyEvent(s, {
+        log: { kind, refId: dialogueId, title, correct: answers.filter((a) => a.correct).length, total: answers.length },
+        answers,
+        reviewsToCreate: [{ kind: 'dialogue', refId: dialogueId, conceptId }],
+        rewards: [{ eventId: `listening:${dialogueId}`, xp: 5, reason: `${title} 듣기 완료` }],
+        mutate: (l, date) => {
+          const listeningDone = l.listeningDone[dialogueId] ? l.listeningDone : { ...l.listeningDone, [dialogueId]: date };
+          const steps = conceptId.startsWith('a1-u') && !l.steps[`${conceptId}:listening`] ? { ...l.steps, [`${conceptId}:listening`]: date } : l.steps;
+          return { ...l, listeningDone, steps };
+        },
+      })),
+
+      completeSpeaking: (unitId, attempts, conceptBySentence) => set((s) => {
+        const ids = [...new Set(attempts.map((a) => a.sentenceId))];
+        // STT 일치도는 발음 숙련도가 아니다 → 숙련도(정답) 기록에 넣지 않고, 누락 단어가 있으면 재연습(복습) 대상으로만 등록
+        const needsPractice = ids.filter((id) => {
+          const last = attempts.filter((a) => a.sentenceId === id).at(-1)!;
+          return last.mode === 'stt' && (last.missing.length > 0 || last.substituted.length > 0);
+        });
+        return applyStudyEvent(s, {
+          log: { kind: 'speaking', refId: unitId ?? 'free', title: '따라 말하기', correct: 0, total: 0 },
+          reviewsToCreate: needsPractice.map((id) => ({ kind: 'speaking' as const, refId: id, conceptId: conceptBySentence[id] })),
+          rewards: unitId ? [{ eventId: `speaking:${unitId}`, xp: 5, reason: '따라 말하기 완료' }] : [],
+          mutate: (l, date) => ({
+            ...l,
+            speakingAttempts: [...l.speakingAttempts, ...attempts].slice(-1000),
+            steps: unitId && !l.steps[`${unitId}:speaking`] ? { ...l.steps, [`${unitId}:speaking`]: date } : l.steps,
+          }),
+        });
+      }),
+
+      completeReading: (readingId, conceptId, title, answers) => set((s) => applyStudyEvent(s, {
+        log: { kind: 'reading', refId: readingId, title, correct: answers.filter((a) => a.correct).length, total: answers.length },
+        answers,
+        reviewsToCreate: [{ kind: 'reading', refId: readingId, conceptId }],
+        rewards: [{ eventId: `reading:${readingId}`, xp: 5, reason: `독해 "${title}" 완료` }],
+        mutate: (l, date) => (l.readingsDone[readingId] ? l : { ...l, readingsDone: { ...l.readingsDone, [readingId]: date } }),
+      })),
+
+      completeExpression: (exprId, conceptId, title, answers) => set((s) => applyStudyEvent(s, {
+        log: { kind: 'expression', refId: exprId, title, correct: answers.filter((a) => a.correct).length, total: answers.length },
+        answers,
+        reviewsToCreate: [{ kind: 'expression', refId: exprId, conceptId }],
+        rewards: [{ eventId: `expr:${exprId}`, xp: 3, reason: `표현 "${title}" 학습` }],
+        mutate: (l, date) => (l.expressionsDone[exprId] ? l : { ...l, expressionsDone: { ...l.expressionsDone, [exprId]: date } }),
+      })),
+
+      completeDrama: (dramaId, title, answers) => set((s) => applyStudyEvent(s, {
+        log: { kind: 'video', refId: dramaId, title, correct: answers.filter((a) => a.correct).length, total: answers.length },
+        answers,
+        reviewsToCreate: [{ kind: 'dialogue', refId: dramaId, conceptId: 'expr-video' }],
+        rewards: [{ eventId: `drama:${dramaId}`, xp: 5, reason: `미니 드라마 "${title}" 학습` }],
+        mutate: (l, date) => (l.dramasDone[dramaId] ? l : { ...l, dramasDone: { ...l.dramasDone, [dramaId]: date } }),
+      })),
+
+      completeA1Exam: (answers) => {
+        const passed = passRate(answers) >= 0.8;
+        set((s) => {
+          let next = applyStudyEvent(s, {
+            log: { kind: 'a1-exam', refId: 'a1-exam', title: 'A1 종합평가', correct: answers.filter((a) => a.correct).length, total: answers.length },
+            answers,
+            rewards: passed ? [{ eventId: 'a1-exam:pass', stars: 30, xp: 20, reason: 'A1 종합평가 통과' }] : [],
+            mutate: (l, date) => {
+              const rec = { date, correct: answers.filter((a) => a.correct).length, total: answers.length, passed };
+              return { ...l, a1Exam: !l.a1Exam || rec.correct / rec.total > l.a1Exam.correct / l.a1Exam.total ? rec : l.a1Exam };
+            },
+          });
+          if (passed) {
+            const r = acquireCharacter(next.game, SPECIAL_ID, today(), 'special:a1-exam', 'A1 종합평가 통과', now());
+            if (r.acquired) next = postProcess({ ...next, game: r.state, celebrations: [...next.celebrations, { kind: 'character', characterId: SPECIAL_ID, id: cid() }] }, today());
+          }
+          return next;
+        });
+        return { passed };
+      },
+
+      completeReview: (results) => set((s) => {
+        const date = today();
+        const byKey: Record<string, boolean[]> = {};
+        for (const r of results) (byKey[r.key] ??= []).push(r.correct);
+        const reviews = { ...s.learning.reviews };
+        for (const [key, oks] of Object.entries(byKey)) {
+          if (!reviews[key]) continue;
+          reviews[key] = applyReviewResult(reviews[key], oks.filter(Boolean).length / oks.length, date);
+        }
+        const remaining = dueItems(reviews, date).length;
+        const interim: AppState = { ...s, learning: { ...s.learning, reviews } };
+        return applyStudyEvent(interim, {
+          log: { kind: 'review', refId: date, title: '오늘의 복습', correct: results.filter((r) => r.correct).length, total: results.length },
+          answers: results.map((r) => ({ ...r.answer, source: 'review' as const })),
+          // 오늘의 복습을 모두 끝내면 하루 1회 성장 경험치 +20 (날짜 기반 고유 이벤트)
+          rewards: remaining === 0 ? [{ eventId: `review:${date}`, xp: 20, reason: '오늘의 복습 완료' }] : [],
+        });
+      }),
+
+      freePractice: (title, answers) => set((s) => applyStudyEvent(s, { log: { kind: 'free', refId: 'free', title, correct: answers.filter((a) => a.correct).length, total: answers.length }, answers })),
+
+      skipReviewToday: () => set((s) => ({ learning: { ...s.learning, reviewSkippedOn: today() } })),
+
+      toggleSaveWord: (id) => set((s) => {
+        const cur = s.learning.savedWords ?? [];
+        return { learning: { ...s.learning, savedWords: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] } };
+      }),
+
+      completeWordSet: (chapterId, title, wordIds, answers) => set((s) => {
+        const before = Object.keys(s.learning.learnedWords).length;
+        const newOnes = wordIds.filter((w) => !s.learning.learnedWords[w]);
+        const after = before + newOnes.length;
+        const rewards: StudyEvent['rewards'] = [];
+        for (let k = Math.floor(before / 10) + 1; k <= Math.floor(after / 10); k++) rewards.push({ eventId: `vocab10:${k}`, xp: 5, reason: `신규 단어 ${k * 10}개 달성` });
+        // 챕터 첫 완료(새 단어가 1개 이상 포함된 경우만) — 같은 챕터 반복으로는 다시 지급되지 않음
+        if (newOnes.length > 0) rewards.push({ eventId: `wordset:${chapterId}`, stars: 2, xp: 3, reason: `${title} 완료` });
+        return applyStudyEvent(s, {
+          log: { kind: 'words', refId: chapterId, title: `단어장 · ${title}`, correct: answers.filter((a) => a.correct).length, total: answers.length },
+          answers, rewards,
+          reviewsToCreate: wordIds.map((w) => ({ kind: 'word' as const, refId: w, conceptId: VOCAB_BY_ID[w]?.grammarId ?? 'a1-u01' })),
+          mutate: (l, date) => {
+            const learnedWords = { ...l.learnedWords };
+            for (const w of newOnes) learnedWords[w] = date;
+            return { ...l, learnedWords };
+          },
+        });
+      }),
+
+      toggleSaveExpression: (id) => set((s) => {
+        const saved = s.learning.savedExpressions.includes(id) ? s.learning.savedExpressions.filter((x) => x !== id) : [...s.learning.savedExpressions, id];
+        const concept = id.startsWith('trv') ? 'expr-travel' : id.startsWith('biz') ? 'expr-business' : id.startsWith('phr') ? 'expr-phrasal' : 'expr-essential';
+        const reviews = saved.includes(id) ? createReviewItem(s.learning.reviews, 'expression', id, concept, today()).items : s.learning.reviews;
+        return { learning: { ...s.learning, savedExpressions: saved, reviews } };
+      }),
+
+      resolveDiscoveryQuiz: (characterId, correct, answers) => {
+        let success = false;
+        set((s) => {
+          const date = today();
+          const at = now();
+          const learning = applyAnswers(s.learning, answers.map((a) => ({ ...a, id: cid(), date, at })));
+          const r = resolveDiscovery(s.game, characterId, correct, date, at);
+          success = r.success;
+          let next: AppState = { ...s, learning, game: r.state, celebrations: [...s.celebrations, ...(r.success ? [{ kind: 'character' as const, characterId, id: cid() }] : [])] };
+          if (r.success) next = queueStory(next, 'first-character');
+          return postProcess(next, date);
+        });
+        return { success };
+      },
+
+      setPartner: (id) => {
+        const r = setPartnerFn(get().game, id);
+        if (r.ok) set({ game: r.state });
+        return r.ok;
+      },
+
+      claimQuest: (questId) => {
+        const s = get();
+        const q = QUEST_BY_ID[questId];
+        const c = questContext(s);
+        if (!q || questStatus(q, c, s.questClaims) !== 'completed') return { ok: false, stars: 0, items: [] };
+        const key = claimKey(q, c);
+        const at = now();
+        let game = earnStars(s.game, key, q.stars, `퀘스트: ${q.title}`, at).state;
+        let home = s.home;
+        const cel: Celebration[] = [{ kind: 'reward', text: `★ 별 +${q.stars} · ${q.title}`, id: cid() }];
+        const items: string[] = [];
+        let next: AppState = s;
+        if (q.type === 'space') {
+          const u = unlockSpace(home, 'garden', homeContext(s), at);
+          if (!u.ok && !home.spaces.garden) return { ok: false, stars: 0, items: [] };
+          home = u.home;
+        }
+        for (const id of q.items ?? []) { const g = grantItem(home, id, at); home = g.home; if (g.granted) { items.push(id); cel.push({ kind: 'reward', text: `🎁 ${FURNITURE_BY_ID[id].name} 획득`, id: cid() }); } }
+        if (q.xp) game = grantPartnerXp(game, key, q.xp, q.title, cel);
+        next = { ...s, game, home, questClaims: { ...s.questClaims, [key]: at }, celebrations: [...s.celebrations, ...cel] };
+        if (q.type === 'space') next = queueStory(next, 'garden-open');
+        set(postProcess(next, today()));
+        return { ok: true, stars: q.stars, items };
+      },
+
+      buyFurniture: (itemId) => {
+        const s = get();
+        const item = FURNITURE_BY_ID[itemId];
+        if (!item) return { ok: false, error: 'unknown' };
+        const r = buyItem(s.game, s.home, item, now());
+        if (!r.ok) return { ok: false, error: r.error };
+        let next: AppState = { ...s, game: r.game, home: r.home, celebrations: [...s.celebrations, { kind: 'reward', text: `${item.name} 구매 완료 (★ -${item.price})`, id: cid() }] };
+        next = queueStory(next, 'first-purchase');
+        set(next);
+        return { ok: true };
+      },
+
+      commitDecor: (space, draft) => {
+        const s = get();
+        const r = commitPlacements(s.home, FURNITURE_BY_ID, space, draft);
+        if (!r.ok) return { ok: false, changed: false, error: r.error };
+        if (!r.changed) return { ok: true, changed: false };
+        let next: AppState = { ...s, home: r.home };
+        next = queueStory(next, 'first-decorate');
+        set(postProcess(next, today()));
+        return { ok: true, changed: true };
+      },
+
+      addStudyTime: (sec) => set((s) => {
+        const d = today();
+        return { learning: { ...s.learning, studySeconds: { ...s.learning.studySeconds, [d]: (s.learning.studySeconds[d] ?? 0) + sec } } };
+      }),
+
+      updateSettings: (p) => set((s) => ({ settings: { ...s.settings, ...p } })),
+      dismissCelebration: (id) => set((s) => ({ celebrations: s.celebrations.filter((c) => c.id !== id) })),
+      markDecorationsSeen: () => set((s) => ({ game: { ...s.game, village: { ...s.game.village, seen: [...s.game.village.unlocked] } } })),
+      resetAll: () => set({ ...initialState() }),
+
+      startMansionStage: (stageId) => {
+        const st = STAGE_BY_ID[stageId];
+        if (!st) return false;
+        const r = startStage(get().mansion, st);
+        if (r.state !== get().mansion) set({ mansion: r.state });
+        return r.ok;
+      },
+
+      completeMansionStage: (stageId, attemptId, answers) => {
+        const st = STAGE_BY_ID[stageId];
+        if (!st) return null;
+        let out: StageResult | null = null;
+        set((s) => {
+          // 정답 판정은 클라이언트 표시값이 아니라 문항 id 에 매핑된 정답 데이터로 다시 채점
+          const byId = Object.fromEntries(st.questions.map((q) => [q.id, q]));
+          const graded = answers.filter((a) => byId[a.questionId]).map((a) => ({ ...a, correct: gradeAnswer(byId[a.questionId], a.given), source: 'mansion' as const }));
+          const correct = graded.filter((a) => a.correct).length;
+          const r = recordStageResult(s.mansion, st, attemptId, correct, new Date(now()).toISOString());
+          out = r.result;
+          if (r.result.duplicate || r.state === s.mansion) return s;
+          const next = applyStudyEvent(s, {
+            log: { kind: 'mansion-stage', refId: st.id, title: st.title, correct, total: st.questions.length, completed: r.result.passed },
+            answers: graded,
+          });
+          const cel: Celebration[] = r.result.starsGranted ? [{ kind: 'reward', text: `저택 별 +${r.result.starsGranted} · ${st.title} 첫 통과`, id: cid() }] : [];
+          return { ...next, mansion: r.state, celebrations: [...next.celebrations, ...cel] };
+        });
+        return out;
+      },
+
+      renovateTask: (taskId, variantId) => {
+        const t = LIVING_TASK_BY_ID[taskId];
+        if (!t) return { ok: false, error: 'locked' };
+        const r = renovate(get().mansion, t, variantId, new Date(now()).toISOString());
+        if (r.ok) set({ mansion: r.state });
+        return { ok: r.ok, error: r.error };
+      },
+
+      changeTaskVariant: (taskId, variantId) => {
+        const t = LIVING_TASK_BY_ID[taskId];
+        if (!t) return false;
+        const r = changeVariant(get().mansion, t, variantId);
+        if (r.ok && r.state !== get().mansion) set({ mansion: r.state });
+        return r.ok;
+      },
+
+      storyBegin: (eventId) => set((s) => ({ mansion: storyStart(s.mansion, eventId) })),
+      storyGrantClue: (clueId, eventId) => {
+        const r = grantClue(get().mansion, clueId, eventId, new Date(now()).toISOString());
+        if (r.granted) set({ mansion: r.state });
+        return r.granted;
+      },
+      storyAnswerQuiz: (quizId, correct) => set((s) => ({ mansion: recordQuiz(s.mansion, quizId, correct, new Date(now()).toISOString()) })),
+      storyFinish: (eventId) => set((s) => ({ mansion: storyComplete(s.mansion, eventId) })),
+
+      completeLearningSet: ({ setId, type, attemptId, title, answers }) => {
+        let res: SetOutcome & { bonus: boolean; wrongIds: string[] } = { status: 'duplicate', starsGranted: 0, accuracy: 0, bonus: false, wrongIds: [] };
+        set((s) => {
+          const at = new Date(now()).toISOString();
+          const date = today();
+          const correct = answers.filter((a) => a.correct).length;
+          const wrongIds = answers.filter((a) => !a.correct).map((a) => a.questionId);
+          const r = completeSet(s.rewards, s.mansion, { setId, type, correct, total: answers.length, wrongIds, attemptId, date, at });
+          res = { ...r.outcome, bonus: false, wrongIds };
+          if (r.outcome.status === 'duplicate') return s;
+          const next = applyStudyEvent(s, { log: { kind: 'set', refId: setId, title, correct, total: answers.length, completed: true }, answers: answers.map((a) => ({ ...a, source: a.source ?? 'lesson' })) });
+          const b = grantDailyBonus(r.rewards, r.mansion, date, audioSupported(), at);
+          res.bonus = b.granted;
+          const cel: Celebration[] = [];
+          if (r.outcome.starsGranted) cel.push({ kind: 'reward', text: `⭐ 별 +${r.outcome.starsGranted} · ${title}`, id: cid() });
+          if (b.granted) cel.push({ kind: 'reward', text: '⭐ 오늘의 퀘스트 완료 보너스 별 +1', id: cid() });
+          return { ...next, rewards: r.rewards, mansion: b.mansion, celebrations: [...next.celebrations, ...cel] };
+        });
+        return res;
+      },
+
+      completeSetReview: (setId, answers) => {
+        let out = { starsGranted: 0, bonus: false };
+        set((s) => {
+          const rec = s.rewards.sets[setId];
+          if (!rec || rec.status !== 'pending-review') return s;
+          // 틀렸던 문제를 모두 다시 맞혀야 완료 (해설 확인 후 재도전)
+          const solved = new Set(answers.filter((a) => a.correct).map((a) => a.questionId));
+          if (!rec.wrongIds.every((id) => solved.has(id))) return s;
+          const at = new Date(now()).toISOString();
+          const r = completeSetReviewFn(s.rewards, s.mansion, setId, at);
+          const next = applyStudyEvent(s, { log: { kind: 'set-review', refId: setId, title: '틀린 문제 복습', correct: solved.size, total: answers.length, completed: true }, answers: answers.map((a) => ({ ...a, source: 'review' as const })) });
+          const b = grantDailyBonus(r.rewards, r.mansion, today(), audioSupported(), at);
+          out = { starsGranted: r.starsGranted, bonus: b.granted };
+          const cel: Celebration[] = r.starsGranted ? [{ kind: 'reward', text: `⭐ 복습 완료 · 별 +${r.starsGranted}`, id: cid() }] : [];
+          return { ...next, rewards: r.rewards, mansion: b.mansion, celebrations: [...next.celebrations, ...cel] };
+        });
+        return out;
+      },
+
+      toggleMemorized: (wordId) => set((s) => {
+        const m = { ...(s.learning.memorized ?? {}) };
+        if (m[wordId]) delete m[wordId]; else m[wordId] = today();
+        return { learning: { ...s.learning, memorized: m } };
+      }),
+      saveReaderPos: (storyId, para, done) => set((s) => ({ learning: { ...s.learning, readerPos: { ...(s.learning.readerPos ?? {}), [storyId]: { para, at: now(), done: done || s.learning.readerPos?.[storyId]?.done } } } })),
+      saveWriting: (itemId, text, ok) => set((s) => ({ learning: { ...s.learning, writings: { ...(s.learning.writings ?? {}), [itemId]: { text, ok, at: now() } } } })),
+      updateProfile: (p) => set((s) => ({ profile: { ...s.profile, ...p } })),
+
+      markMansionStory: (id) => set((s) => (s.mansion.storySeen.includes(id) ? s : { mansion: { ...s.mansion, storySeen: [...s.mansion.storySeen, id] } })),
+    }),
+    {
+      name: STORE_KEY,
+      version: STORE_VERSION,
+      storage: createJSONStorage(() => idbStorage),
+      partialize: (s) => ({ version: s.version, profile: s.profile, settings: s.settings, learning: s.learning, game: s.game, home: s.home, questClaims: s.questClaims, mansion: s.mansion, rewards: s.rewards, celebrations: s.celebrations }),
+      migrate: (persisted, v) => migrate(persisted, v) as never,
+      merge: (persisted, current) => {
+        if (persisted == null) return { ...current };
+        const valid = validatePersisted(persisted);
+        if (!valid) {
+          try { void idbSet(`${STORE_KEY}-corrupt-backup-${Date.now()}`, JSON.stringify(persisted)); } catch { /* noop */ }
+          return { ...current, recovered: true };
+        }
+        return { ...current, ...migrate(valid, STORE_VERSION) };
+      },
+      onRehydrateStorage: () => () => { useApp.setState({ hydrated: true }); },
+    },
+  ),
+);

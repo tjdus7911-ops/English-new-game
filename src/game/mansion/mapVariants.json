@@ -1,0 +1,82 @@
+{
+ "C15": {
+  "sofa-green": {
+   "key": "map/var-C15-sofa-green",
+   "x": 419,
+   "y": 395,
+   "w": 165,
+   "h": 90
+  },
+  "sofa-cloud": {
+   "key": "map/var-C15-sofa-cloud",
+   "x": 419,
+   "y": 395,
+   "w": 165,
+   "h": 90
+  }
+ },
+ "C16": {
+  "arm-rose": {
+   "key": "map/var-C16-arm-rose",
+   "x": 290,
+   "y": 448,
+   "w": 68,
+   "h": 71
+  },
+  "arm-brown": {
+   "key": "map/var-C16-arm-brown",
+   "x": 290,
+   "y": 448,
+   "w": 68,
+   "h": 71
+  }
+ },
+ "C17": {
+  "arm-rose": {
+   "key": "map/var-C17-arm-rose",
+   "x": 358,
+   "y": 507,
+   "w": 64,
+   "h": 52
+  },
+  "arm-brown": {
+   "key": "map/var-C17-arm-brown",
+   "x": 358,
+   "y": 507,
+   "w": 64,
+   "h": 52
+  }
+ },
+ "D26": {
+  "cur-ivory": {
+   "key": "map/var-D26-cur-ivory",
+   "x": 407,
+   "y": 242,
+   "w": 165,
+   "h": 165
+  },
+  "cur-olive": {
+   "key": "map/var-D26-cur-olive",
+   "x": 407,
+   "y": 242,
+   "w": 165,
+   "h": 165
+  }
+ },
+ "D27": {
+  "rug-check": {
+   "key": "map/var-D27-rug-check",
+   "x": 287,
+   "y": 420,
+   "w": 345,
+   "h": 164
+  },
+  "rug-lily": {
+   "key": "map/var-D27-rug-lily",
+   "x": 287,
+   "y": 420,
+   "w": 345,
+   "h": 164
+  }
+ }
+}
