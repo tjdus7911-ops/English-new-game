@@ -30,7 +30,7 @@ ORIG_SHEET = ROOT / 'art/pets/godot_src/ice_leopard_s1/pose_walk.png'
 OUT = ROOT / 'art/pets/godot_src/ice_leopard_s1/parts_v3'
 K = 2          # 원본(native) px → HD px
 SS = 4         # 곡선 래스터 슈퍼샘플
-PAD = 24       # 파츠 이미지 여백 (HD px)
+PAD = 40       # 파츠 이미지 여백 (HD px)
 LAMA = None
 RNG = np.random.default_rng(7)
 
@@ -121,13 +121,14 @@ def inpaint(rgb, mask):
 LEGS = {
     'leg_hind_near': dict(paw=(65, 262), cap=((110, 213), 24), z=2, near=True, pts=lambda c, r:
         [(34, 280), (33, 246), (44, 222), (56, 202), (70, 193), (86, 192)] + arc(c, r, 213, 332) +
-        [(134, 206), (136.5, 214), (136.5, 226), (134, 235), (124, 246), (100, 248), (94, 256), (92, 280)]),
-    'leg_hind_far': dict(paw=(157, 265), cap=((158, 214), 19), z=-2, near=False, pts=lambda c, r:
-        arc(c, r, 200, 378) + [(176, 228), (176.5, 246), (175.5, 262), (175, 281), (134, 281),
-                                (133, 262), (134, 246), (137, 232), (134, 218), (135, 204)]),
-    'leg_front_far': dict(paw=(202, 265), cap=((200, 214), 21), z=-1, near=False, pts=lambda c, r:
-        arc(c, r, 162, 300) + [(226, 199), (232, 207), (233.5, 217), (231.5, 224), (224, 231), (226, 238), (228, 252), (230, 266), (231, 282), (174.5, 282),
-                                (174, 266), (174.5, 252), (175.5, 240), (178.5, 226)]),
+        [(131.5, 205), (134, 214), (135, 226), (133, 235), (124, 246), (100, 248), (94, 256), (92, 280)]),
+    'leg_hind_far': dict(paw=(157, 265), cap=((158, 214), 19), z=-2, near=False, trust=(139, 167), pts=lambda c, r:
+        arc(c, r, 200, 378) + [(174, 226), (176.5, 240), (176, 254), (176.5, 266), (174, 274), (168, 277.5), (155, 278),
+                                (142, 277), (137, 272), (135.5, 262), (136, 248), (137.5, 234), (133, 222), (131, 210), (136, 203)]),
+    'leg_front_far': dict(paw=(202, 265), cap=((200, 214), 21), z=-1, near=False, trust=(180, 221), pts=lambda c, r:
+        arc(c, r, 162, 300) + [(226, 199), (232, 207), (233, 217), (230, 227), (225.5, 236), (225, 248), (227.5, 260),
+                               (228, 270), (225, 277), (215, 279.5), (190, 280), (178, 278), (175, 270), (175.5, 256),
+                               (177, 240), (178.5, 226)]),
     'leg_front_near': dict(paw=(322, 255), cap=((250, 209), 24), z=3, near=True, pts=lambda c, r:
         arc(c, r, 155, 322) + [(282, 192), (300, 204), (322, 222), (344, 238), (346, 262), (334, 278),
                                (290, 280), (262, 266), (240, 250), (226, 238), (224, 228), (226.5, 219)]),
@@ -191,9 +192,11 @@ def main():
     closed = cv2.morphologyEx((al > 0.5).astype(np.uint8), cv2.MORPH_CLOSE,
                               cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15 * K, 15 * K))) > 0
     gaps = body_in & (al < 0.6) & closed & (d_body < 14 * K) & (xs > 98) & (xs < 276)
-    fill_m = (near_moving & body_in & (d_body > -6 * K)) | gaps
+    fill_m = (near_moving & body_in & (d_body > -6 * K) & (al > 0.3)) | gaps
     body_rgb = inpaint(rgbw, fill_m)
     body_al = np.where(fill_m, 1.0, al)
+    resid = (a[..., :3].min(-1) > 230) & (al < 0.9) & (d_body < 10 * K) & ~fill_m   # 배경 제거 때 남은 흰 잔여
+    body_al = np.where(resid, 0.0, body_al)
     body_al = np.minimum(body_al, fur_alpha(d_body, key=1))
     parts = {'body': (body_rgb, body_al, (0, 0))}
     wbands = {}
@@ -201,6 +204,7 @@ def main():
     # ── 다리 ──
     in_front = {'leg_hind_far': ['leg_hind_near', 'leg_front_far', 'leg_front_near'],
                 'leg_front_far': ['leg_front_near'], 'leg_hind_near': [], 'leg_front_near': []}
+    ground_y = float(np.where(al.max(1) > 0.5)[0].max())       # 발바닥 바닥선 (HD 행)
     for n, L in legs.items():
         inside = L['inside']
         occl = np.zeros_like(inside)
@@ -210,28 +214,47 @@ def main():
         # 다리 사이에 남아 있던 배경 흰 조각(배경 제거 잔여)도 복원 대상으로
         white = (a[..., :3].min(-1) > 236) & (al > 0.3) & inside & (L['d'] < 10 * K)
         white_fix = cv2.dilate(white.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool) & inside & ~occl
-        # 다리와 다리 사이의 좁은 배경 틈(실루엣 안쪽 오목한 곳)도 이 다리의 털로 채움 — 관절이 벌어질 때 구멍 방지
-        if not L['near']:
-            occl |= inside & closed & (al < 0.6) & (L['d'] > 0) & (yy < (L['c'][1] + 18) * K)
-        # 몸통 위로 올라간 캡 부분 중 원본이 몸통 털인 곳은 그대로(정지 자세에서 원본과 동일), 다른 다리에 가려진 곳만 복원
         rgb = a[..., :3].copy()
         base_al = al.copy()
-        if occl.any() or white_fix.any():
-            fill = inpaint(rgbw, occl | white_fix)
-            rgb = np.where((occl | white_fix)[..., None], fill, rgb)
-            base_al = np.where(occl, 1.0, base_al)          # 흰 잔여 조각은 색만 털로 바꾸고 알파(윤곽)는 원본 유지
-        # 다리 바닥: 발바닥 아래로 복원이 넘치지 않게 원본 바닥선 기준
+        d_edge = L['d']
         ground = np.where(al.max(1) > 0.5)[0].max()
-        base_al = np.where(occl & (yy > ground - 1), al, base_al)
-        la = np.minimum(base_al, fur_alpha(L['d'], key=sum(map(ord, n))))
+        if not L['near']:
+            # 먼 다리: 실루엣 = (원본에 보이는 이 다리) ∪ (앞 다리에 가려진 부분), 윤곽 곡선 안으로 제한 후
+            # 닫기·열기로 모서리·홈을 둥글게 → 원본에 확실히 이 다리인 가운데 부분만 원본 픽셀, 나머지는 LaMa 로 털 복원
+            xs_ = np.arange(W)[None, :] / K - off
+            vis = inside & (al > 0.5)
+            shape = ((vis | occl) & inside).astype(np.uint8)
+            ker = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (10 * K + 1, 10 * K + 1))
+            shape = cv2.morphologyEx(shape, cv2.MORPH_CLOSE, ker)
+            shape = cv2.morphologyEx(shape, cv2.MORPH_OPEN, ker)
+            shape = (cv2.GaussianBlur(shape.astype(np.float32), (0, 0), 2.0 * K) > 0.5) & inside
+            own = vis & ~occl & (xs_ >= L['trust'][0]) & (xs_ <= L['trust'][1])
+            fillm = shape & ~own & (yy < ground - 1)
+            ctx = rgbw.copy()
+            ctx[~shape] = rgbw[own].mean(0)                       # 배경 흰색이 번지지 않게 바깥은 다리 평균색
+            fill = inpaint(ctx, fillm)
+            rgb = np.where(fillm[..., None], fill, rgb)
+            base_al = np.where(fillm, 1.0, np.where(own | (shape & (yy >= ground - 1)), al, 0.0))
+            sm = shape.astype(np.uint8)
+            d_edge = (cv2.distanceTransform(sm, cv2.DIST_L2, 5) - cv2.distanceTransform(1 - sm, cv2.DIST_L2, 5))
+        else:
+            if occl.any() or white_fix.any():
+                fill = inpaint(rgbw, occl | white_fix)
+                rgb = np.where((occl | white_fix)[..., None], fill, rgb)
+                base_al = np.where(occl, 1.0, base_al)      # 흰 잔여 조각은 색만 털로 바꾸고 알파(윤곽)는 원본 유지
+            base_al = np.where(occl & (yy > ground - 1), al, base_al)
+            # 실루엣 바깥쪽 틈에 남은 흰 배경 잔여(반투명)는 지움 → 회전 시 흰 실선이 보이지 않게
+            resid = (a[..., :3].min(-1) > 230) & (al < 0.85) & (L['d'] < 8 * K)
+            base_al = np.where(resid, 0.0, base_al)
+        la = np.minimum(base_al, fur_alpha(d_edge, key=sum(map(ord, n))))
         # 바닥 접지 그림자 제거: 발 밑의 검은 반투명 그림자(발 윤곽선은 회색이라 남음) → 다리를 들면 그림자가 따라 뜨지 않게
         luma = a[..., :3].mean(-1)
         rows = np.arange(H)[:, None]
         shadow_keep = np.clip((luma - 45) / 45, 0, 1)
         la = la * np.where(rows > ground - 12 * K, shadow_keep, 1)
         # 만든 경계(원본 알파가 1인데 곡선이 자른 곳) 안쪽에 둥근 음영 → 원기둥 같은 다리 입체감
-        cut = (al > 0.9) & (L['d'] < 6 * K)
-        ao = 1 - 0.10 * np.clip(1 - L['d'] / (6 * K), 0, 1) * cut * L['w']   # 몸통에 붙은 윗부분엔 음영 없음
+        cut = (base_al > 0.9) & (d_edge < 6 * K)
+        ao = 1 - 0.10 * np.clip(1 - d_edge / (6 * K), 0, 1) * cut * L['w']   # 몸통에 붙은 윗부분엔 음영 없음
         rgb = rgb * ao[..., None]
         parts[n] = (rgb, la, (L['c'][0] * K, L['c'][1] * K))
         wbands[n] = L['wband']
@@ -309,27 +332,29 @@ def compose(imgs, size, rot=None, lift=None):
 
 
 def label(im, text):
+    """이미지 위에 제목 띠를 '덧붙인다'(이미지를 가리지 않음)."""
     from PIL import ImageDraw, ImageFont
-    d = ImageDraw.Draw(im)
-    try:
-        f = ImageFont.truetype('/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc', 22)
-    except OSError:
+    f = ImageFont.load_default()
+    for path in ('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc', '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc'):
         try:
-            f = ImageFont.truetype('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc', 22)
+            f = ImageFont.truetype(path, 22)
+            break
         except OSError:
-            f = ImageFont.load_default()
-    d.rectangle([0, 0, im.width, 34], fill=(255, 255, 255, 230))
-    d.text((10, 4), text, fill=(40, 30, 70), font=f)
-    return im
+            pass
+    out = Image.new('RGBA', (im.width, im.height + 38), (255, 255, 255, 255))
+    out.alpha_composite(im, (0, 38))
+    ImageDraw.Draw(out).text((10, 6), text, fill=(40, 30, 70), font=f)
+    return out
 
 
 def grid(cells, cols):
     w = max(c.width for c in cells)
     h = max(c.height for c in cells)
     rows = (len(cells) + cols - 1) // cols
-    S = Image.new('RGBA', (w * cols, h * rows), (255, 255, 255, 255))
+    g = 12
+    S = Image.new('RGBA', (w * cols + g * (cols - 1), h * rows + g * (rows - 1)), (255, 255, 255, 255))
     for i, c in enumerate(cells):
-        S.alpha_composite(c, ((i % cols) * w, (i // cols) * h))
+        S.alpha_composite(c, ((i % cols) * (w + g), (i // cols) * (h + g)))
     return S
 
 
