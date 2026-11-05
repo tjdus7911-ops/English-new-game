@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">수상한 저택의 상속자</string>
-    <string name="title_activity_main">수상한 저택의 상속자</string>
-    <string name="package_name">com.honjaenglish.mansion</string>
-    <string name="custom_url_scheme">com.honjaenglish.mansion</string>
-</resources>
