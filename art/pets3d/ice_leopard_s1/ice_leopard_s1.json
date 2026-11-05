@@ -1,0 +1,41 @@
+{
+ "anims": {
+  "walk": {
+   "fps": 30,
+   "frames": 30,
+   "loop": true,
+   "speed_m_s": 0.484
+  },
+  "run": {
+   "fps": 30,
+   "frames": 18,
+   "loop": true,
+   "speed_m_s": 2.281
+  },
+  "idle": {
+   "fps": 30,
+   "frames": 90,
+   "loop": true,
+   "speed_m_s": 0.0
+  },
+  "sleep": {
+   "fps": 30,
+   "frames": 120,
+   "loop": true,
+   "speed_m_s": 0.0
+  },
+  "pet_react": {
+   "fps": 30,
+   "frames": 60,
+   "loop": true,
+   "speed_m_s": 0.0
+  },
+  "nuzzle": {
+   "fps": 30,
+   "frames": 90,
+   "loop": true,
+   "speed_m_s": 0.0
+  }
+ },
+ "faces": 50880
+}

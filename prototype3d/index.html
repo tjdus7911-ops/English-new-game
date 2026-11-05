@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>EGG ISLAND 3D 설표 미리보기</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:#cfe8ff;font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;color:#26335a}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#hud{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.row{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;pointer-events:auto}
+button{font:inherit;font-weight:700;font-size:14px;border:0;border-radius:14px;padding:10px 12px;min-width:56px;background:rgba(255,255,255,.92);color:#2c3b73;box-shadow:0 2px 0 rgba(60,90,160,.25),0 6px 14px rgba(60,90,160,.18)}
+button.on{background:#5b8cff;color:#fff}
+#title{position:fixed;top:calc(10px + env(safe-area-inset-top));left:12px;right:12px;display:flex;justify-content:space-between;gap:8px;pointer-events:none}
+#title b{background:rgba(255,255,255,.9);padding:6px 12px;border-radius:12px;font-size:14px}
+#tip{background:rgba(255,255,255,.9);padding:6px 12px;border-radius:12px;font-size:12px;text-align:right}
+#heart{position:fixed;pointer-events:none;font-size:28px;opacity:0;transition:opacity .2s}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="title"><b>🐆 눈꽃 설표 · 1단계 (3D)</b><span id="tip">바닥을 터치하면 걸어가요 · 설표를 터치하면 쓰다듬기</span></div>
+<div id="hud">
+<div class="row" id="anims"></div>
+<div class="row"><button id="spd">이동: 걷기</button><button id="cam">카메라 돌리기: 자동</button></div>
+</div>
+<div id="heart">💙</div>
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+
+const $=s=>document.querySelector(s);
+const canvas=$('#c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0xbfe3ff);scene.fog=new THREE.Fog(0xbfe3ff,16,38);
+const camera=new THREE.PerspectiveCamera(42,1,.1,100);
+camera.position.set(3.4,2.6,4.6);
+const controls=new OrbitControls(camera,canvas);
+controls.enableDamping=true;controls.enablePan=false;controls.minDistance=1.2;controls.maxDistance=9;controls.maxPolarAngle=Math.PI*.47;
+controls.target.set(0,.7,0);
+
+// ---- 조명
+scene.add(new THREE.HemisphereLight(0xdff0ff,0xb6e29a,1.15));
+const sun=new THREE.DirectionalLight(0xfff1d6,2.4);sun.position.set(5,9,4);sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-9,right:9,top:9,bottom:-9,near:1,far:30});sun.shadow.bias=-.0004;sun.shadow.normalBias=.03;
+scene.add(sun);
+
+// ---- 테스트 섬 (간단한 도형 + 부드러운 색)
+const M=(c,r=.9)=>new THREE.MeshStandardMaterial({color:c,roughness:r});
+function add(g,m,x,y,z,sh=true){const o=new THREE.Mesh(g,m);o.position.set(x,y,z);o.castShadow=sh;o.receiveShadow=true;scene.add(o);return o}
+add(new THREE.CylinderGeometry(8,7.2,1.2,64),M(0x8bd36a),0,-.6,0);
+add(new THREE.CylinderGeometry(7.2,5.2,3,64),M(0xb98a5e,1),0,-2.7,0);
+add(new THREE.CylinderGeometry(2.6,2.6,.06,48),M(0xf4e3c2),0,.03,0,false); // 놀이 공간 러그
+add(new THREE.CylinderGeometry(2.3,2.3,.07,48),M(0xffd6e0),0,.04,0,false);
+const sea=new THREE.Mesh(new THREE.CircleGeometry(60,48),new THREE.MeshStandardMaterial({color:0x7cc8f5,roughness:.4}));sea.rotation.x=-Math.PI/2;sea.position.y=-3.6;scene.add(sea);
+function tree(x,z,s=1){const t=new THREE.Group();
+ const tr=new THREE.Mesh(new THREE.CylinderGeometry(.14*s,.2*s,1.2*s,8),M(0x9a6b45));tr.position.y=.6*s;tr.castShadow=true;t.add(tr);
+ for(const [y,r] of [[1.5,.9],[2.15,.7],[2.7,.45]]){const c=new THREE.Mesh(new THREE.SphereGeometry(r*s,16,12),M(0x57b86a));c.position.y=y*s;c.castShadow=true;t.add(c)}
+ t.position.set(x,0,z);scene.add(t)}
+[[-5,-3],[-5.6,1],[5.2,-2.6],[4.6,3.8],[-3,-5.5],[2,-5.6],[-4,4.8]].forEach(([x,z],i)=>tree(x,z,.9+.25*((i*37)%3)/2));
+function mush(x,z){add(new THREE.CylinderGeometry(.07,.09,.22,10),M(0xfff2e0),x,.11,z);add(new THREE.SphereGeometry(.2,14,10,0,Math.PI*2,0,Math.PI/2),M(0xff7f9b),x,.22,z)}
+mush(3,1.8);mush(3.4,2.2);mush(-2.8,3.4);
+// 가구: 침대·공·쿠션 (육성방 느낌)
+const bed=new THREE.Group();
+const bb=new THREE.Mesh(new THREE.CylinderGeometry(.9,.95,.28,32),M(0xa9c4ff));bb.position.y=.14;bb.castShadow=bb.receiveShadow=true;bed.add(bb);
+const bc=new THREE.Mesh(new THREE.CylinderGeometry(.7,.72,.18,32),M(0xfff4d6));bc.position.y=.3;bed.add(bc);
+bed.position.set(-1.7,0,-1.5);scene.add(bed);
+const ball=add(new THREE.SphereGeometry(.22,24,16),M(0xff8a7a),1.8,.22,1.2);
+add(new THREE.BoxGeometry(.8,.45,.5),M(0xffc46b),1.9,.22,-1.9);
+const bunt=new THREE.Mesh(new THREE.TorusGeometry(.5,.05,8,32,Math.PI),M(0xffffff));
+
+// ---- 펫
+const pet=new THREE.Group();scene.add(pet);
+const loader=new GLTFLoader();
+let mixer,actions={},meta={},cur=null,body;
+const BUTTONS=[['idle','대기'],['walk','걷기'],['run','달리기'],['sleep','잠자기'],['pet_react','쓰다듬기'],['nuzzle','부비부비']];
+const state={mode:'idle',target:null,speedMode:'walk',camAuto:true,lock:false};
+function play(name,fade=.25){
+ const a=actions[name];if(!a||cur===name)return;
+ const prev=actions[cur];a.reset().setEffectiveWeight(1).fadeIn(fade).play();
+ if(prev)prev.fadeOut(fade);cur=name;
+ document.querySelectorAll('#anims button').forEach(b=>b.classList.toggle('on',b.dataset.a===name));
+}
+const [gltf,info]=await Promise.all([loader.loadAsync('ice_leopard_s1.glb'),fetch('ice_leopard_s1.json').then(r=>r.json())]);
+meta=info.anims;
+body=gltf.scene;pet.add(body);
+body.traverse(o=>{if(o.isMesh||o.isSkinnedMesh){o.castShadow=true;o.receiveShadow=true;o.frustumCulled=false;const m=o.material;m.roughness=.9;m.metalness=0}});
+mixer=new THREE.AnimationMixer(body);
+for(const c of gltf.animations){const a=mixer.clipAction(c);a.setLoop(THREE.LoopRepeat);actions[c.name]=a}
+pet.position.set(0,0,0);pet.rotation.y=Math.PI*.15;
+// 바닥 그림자 원
+const blob=new THREE.Mesh(new THREE.CircleGeometry(.62,24),new THREE.MeshBasicMaterial({color:0x2a3a1a,transparent:true,opacity:.0}));
+// 버튼
+for(const [k,t] of BUTTONS){const b=document.createElement('button');b.textContent=t;b.dataset.a=k;b.onclick=()=>choose(k);$('#anims').appendChild(b)}
+function choose(k){
+ state.target=null;state.lock=false;
+ if(k==='walk'||k==='run'){state.mode='wander';state.speedMode=k;$('#spd').textContent='이동: '+(k==='run'?'달리기':'걷기');pickWander()}
+ else{state.mode=k;play(k)}
+}
+$('#spd').onclick=()=>{state.speedMode=state.speedMode==='walk'?'run':'walk';$('#spd').textContent='이동: '+(state.speedMode==='run'?'달리기':'걷기')};
+$('#cam').onclick=()=>{state.camAuto=!state.camAuto;$('#cam').textContent='카메라 돌리기: '+(state.camAuto?'자동':'직접')};
+function pickWander(){const a=Math.random()*Math.PI*2,r=1.5+Math.random()*3.2;state.target=new THREE.Vector3(Math.cos(a)*r,0,Math.sin(a)*r)}
+play('idle',0);
+
+// ---- 터치: 바닥=이동, 펫=쓰다듬기
+const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();let down=null;
+canvas.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY,t:performance.now()}});
+canvas.addEventListener('pointerup',e=>{
+ if(!down||Math.hypot(e.clientX-down.x,e.clientY-down.y)>8||performance.now()-down.t>400)return;
+ ndc.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);ray.setFromCamera(ndc,camera);
+ if(ray.intersectObject(body,true).length){state.target=null;state.mode='pet_react';play('pet_react');
+  const h=$('#heart');h.style.left=e.clientX-14+'px';h.style.top=e.clientY-40+'px';h.style.opacity=1;setTimeout(()=>h.style.opacity=0,900);setTimeout(()=>{if(state.mode==='pet_react'){state.mode='idle';play('idle')}},2200);return}
+ const g=ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),new THREE.Vector3());
+ if(g&&g.length()<7){state.target=g;state.mode='go';}
+});
+
+// ---- 갱신
+const clock=new THREE.Clock();let paused=false;
+const camGoal=new THREE.Vector3(),look=new THREE.Vector3(),fw=new THREE.Vector3();
+function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();
+function step(dt){
+ // 이동
+ if(state.target&&(state.mode==='wander'||state.mode==='go')){
+  const mv=state.mode==='go'?state.speedMode:state.speedMode;
+  const to=state.target.clone().sub(pet.position);to.y=0;const d=to.length();
+  if(d<.12){
+   if(state.mode==='wander'){pickWander();}else{state.mode='idle';state.target=null;play('idle')}
+  }else{
+   const want=Math.atan2(to.x,to.z);let da=want-pet.rotation.y;da=Math.atan2(Math.sin(da),Math.cos(da));
+   pet.rotation.y+=da*Math.min(1,dt*(mv==='run'?7:5));
+   const ok=Math.abs(da)<.9;const sp=meta[mv].speed_m_s;
+   if(ok){pet.position.addScaledVector(new THREE.Vector3(Math.sin(pet.rotation.y),0,Math.cos(pet.rotation.y)),Math.min(d,sp*dt))}
+   play(ok?mv:'walk',.2);
+   const a=actions[cur];if(a)a.timeScale=ok?1:.6;
+  }
+  const L=Math.hypot(pet.position.x,pet.position.z);if(L>6.4)pet.position.multiplyScalar(6.4/L);
+ }else if(actions[cur])actions[cur].timeScale=1;
+ mixer.update(dt);
+}
+function frame(){
+ const dt=Math.min(clock.getDelta(),.05);
+ if(!paused)step(dt);
+ // 카메라: 부비부비일 땐 얼굴 정면으로 다가가고, 평소엔 펫을 따라감
+ pet.getWorldDirection(fw);
+ const head=pet.position.clone().add(new THREE.Vector3(0,.85,0));
+ if(state.mode==='nuzzle'&&state.camAuto){
+  camGoal.copy(pet.position).addScaledVector(fw,2.0).add(new THREE.Vector3(0,.95,0));
+  camera.position.lerp(camGoal,.05);controls.target.lerp(head.add(new THREE.Vector3(0,.05,0)),.08);
+ }else{
+  controls.target.lerp(pet.position.clone().add(new THREE.Vector3(0,.6,0)),.06);
+ }
+ controls.update();renderer.render(scene,camera);requestAnimationFrame(frame)
+}
+frame();
+// 점검용 훅
+window.__set=(name,t,view)=>{paused=true;state.mode='x';mixer.stopAllAction();cur=name;const a=actions[name];a.reset().setEffectiveWeight(1).play();a.paused=false;a.time=t*a.getClip().duration;mixer.update(0);
+ pet.position.set(0,0,0);pet.rotation.y=view.ry??0;controls.target.set(0,view.ty??.65,0);camera.position.set(view.x,view.y,view.z);controls.update();renderer.render(scene,camera);return true};
+window.__ready=true;
+</script></body></html>
