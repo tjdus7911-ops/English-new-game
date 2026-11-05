@@ -1,0 +1,279 @@
+{
+ "pet": "PET_SNOW_C",
+ "slug": "ice_leopard",
+ "stage": 1,
+ "source": "Figma Lv3HWAQS9cBVqu5zQbinCy 원본 포즈 (재생성 없음)",
+ "walk": {
+  "canvas": [
+   736,
+   586
+  ],
+  "ground_y": 560,
+  "parts": [
+   {
+    "name": "body",
+    "file": "walk_body.png",
+    "pos": [
+     122,
+     23
+    ],
+    "size": [
+     591,
+     401
+    ],
+    "pivot": [
+     360,
+     380
+    ],
+    "z": 0,
+    "parent": null
+   },
+   {
+    "name": "leg_hind_near",
+    "file": "walk_leg_hind_near.png",
+    "pos": [
+     84,
+     383
+    ],
+    "size": [
+     190,
+     172
+    ],
+    "pivot": [
+     208,
+     412
+    ],
+    "z": 6,
+    "parent": "body"
+   },
+   {
+    "name": "leg_hind_far",
+    "file": "walk_leg_hind_far.png",
+    "pos": [
+     239,
+     405
+    ],
+    "size": [
+     127,
+     155
+    ],
+    "pivot": [
+     296,
+     420
+    ],
+    "z": -2,
+    "parent": "body"
+   },
+   {
+    "name": "leg_front_far",
+    "file": "walk_leg_front_far.png",
+    "pos": [
+     335,
+     401
+    ],
+    "size": [
+     163,
+     162
+    ],
+    "pivot": [
+     408,
+     416
+    ],
+    "z": -2,
+    "parent": "body"
+   },
+   {
+    "name": "leg_front_near",
+    "file": "walk_leg_front_near.png",
+    "pos": [
+     455,
+     376
+    ],
+    "size": [
+     221,
+     169
+    ],
+    "pivot": [
+     500,
+     406
+    ],
+    "z": 6,
+    "parent": "body"
+   },
+   {
+    "name": "tail",
+    "file": "walk_tail.png",
+    "pos": [
+     22,
+     79
+    ],
+    "size": [
+     241,
+     299
+    ],
+    "pivot": [
+     228,
+     316
+    ],
+    "z": -1,
+    "parent": "body"
+   },
+   {
+    "name": "head",
+    "file": "walk_head.png",
+    "pos": [
+     396,
+     24
+    ],
+    "size": [
+     317,
+     330
+    ],
+    "pivot": [
+     492,
+     300
+    ],
+    "z": 8,
+    "parent": "body"
+   }
+  ]
+ },
+ "idle": {
+  "canvas": [
+   548,
+   670
+  ],
+  "ground_y": 642,
+  "parts": [
+   {
+    "name": "body",
+    "file": "idle_body.png",
+    "pos": [
+     65,
+     22
+    ],
+    "size": [
+     461,
+     626
+    ],
+    "pivot": [
+     274,
+     642
+    ],
+    "z": 0,
+    "parent": null
+   },
+   {
+    "name": "tail",
+    "file": "idle_tail.png",
+    "pos": [
+     24,
+     367
+    ],
+    "size": [
+     125,
+     236
+    ],
+    "pivot": [
+     140,
+     580
+    ],
+    "z": -1,
+    "parent": "body"
+   },
+   {
+    "name": "head",
+    "file": "idle_head.png",
+    "pos": [
+     66,
+     24
+    ],
+    "size": [
+     458,
+     376
+    ],
+    "pivot": [
+     274,
+     360
+    ],
+    "z": 8,
+    "parent": "body"
+   }
+  ]
+ },
+ "pet_react": {
+  "canvas": [
+   540,
+   610
+  ],
+  "ground_y": 581,
+  "parts": [
+   {
+    "name": "body",
+    "file": "react_body.png",
+    "pos": [
+     22,
+     87
+    ],
+    "size": [
+     496,
+     500
+    ],
+    "pivot": [
+     270,
+     581
+    ],
+    "z": 0,
+    "parent": null
+   },
+   {
+    "name": "head",
+    "file": "react_head.png",
+    "pos": [
+     125,
+     87
+    ],
+    "size": [
+     390,
+     297
+    ],
+    "pivot": [
+     340,
+     340
+    ],
+    "z": 8,
+    "parent": "body"
+   }
+  ]
+ },
+ "closeup": {
+  "cl_notice_approach": {
+   "file": "cl_notice_approach.png",
+   "size": [
+    606,
+    616
+   ]
+  },
+  "cl_closeup": {
+   "file": "cl_closeup.png",
+   "size": [
+    760,
+    568
+   ]
+  },
+  "cl_rub_cheek": {
+   "file": "cl_rub_cheek.png",
+   "size": [
+    760,
+    568
+   ]
+  },
+  "cl_gaze_back_off": {
+   "file": "cl_gaze_back_off.png",
+   "size": [
+    502,
+    560
+   ]
+  }
+ }
+}
