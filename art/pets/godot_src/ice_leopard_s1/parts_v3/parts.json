@@ -1,0 +1,130 @@
+{
+ "canvas": [
+  816,
+  666
+ ],
+ "pad_native": 20.0,
+ "k": 2,
+ "order": [
+  "leg_hind_far",
+  "leg_front_far",
+  "body",
+  "leg_hind_near",
+  "leg_front_near"
+ ],
+ "parts": {
+  "body": {
+   "file": "body.png",
+   "pos": [
+    38,
+    39
+   ],
+   "size": [
+    739,
+    461
+   ],
+   "pivot": [
+    0,
+    0
+   ],
+   "weight_axis": null,
+   "z": 0
+  },
+  "leg_hind_near": {
+   "file": "leg_hind_near.png",
+   "pos": [
+    100,
+    393
+   ],
+   "size": [
+    238,
+    225
+   ],
+   "pivot": [
+    260.0,
+    466.0
+   ],
+   "weight_axis": [
+    260.0,
+    466.0,
+    -0.6764,
+    0.7365,
+    -4,
+    40
+   ],
+   "z": 2
+  },
+  "leg_hind_far": {
+   "file": "leg_hind_far.png",
+   "pos": [
+    282,
+    405
+   ],
+   "size": [
+    139,
+    211
+   ],
+   "pivot": [
+    356.0,
+    468.0
+   ],
+   "weight_axis": [
+    356.0,
+    468.0,
+    -0.0196,
+    0.9998,
+    -4,
+    40
+   ],
+   "z": -2
+  },
+  "leg_front_far": {
+   "file": "leg_front_far.png",
+   "pos": [
+    363,
+    401
+   ],
+   "size": [
+    169,
+    222
+   ],
+   "pivot": [
+    440.0,
+    468.0
+   ],
+   "weight_axis": [
+    440.0,
+    468.0,
+    0.0392,
+    0.9992,
+    -4,
+    40
+   ],
+   "z": -1
+  },
+  "leg_front_near": {
+   "file": "leg_front_near.png",
+   "pos": [
+    464,
+    384
+   ],
+   "size": [
+    276,
+    225
+   ],
+   "pivot": [
+    540.0,
+    458.0
+   ],
+   "weight_axis": [
+    540.0,
+    458.0,
+    0.8427,
+    0.5384,
+    -4,
+    40
+   ],
+   "z": 3
+  }
+ }
+}
